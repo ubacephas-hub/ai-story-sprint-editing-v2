@@ -116,7 +116,8 @@ async function main() {
 
     // 3. Create admin user
     console.log("\n👤 Creating admin user...");
-    const adminEmail = "admin@storysprint.local";
+    const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@storysprint.local";
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || "Admin123!";
     let adminRow = await db
       .select()
       .from(schema.users)
@@ -127,7 +128,7 @@ async function main() {
       await db.insert(schema.users).values({
         name: "Course Administrator",
         email: adminEmail,
-        passwordHash: await hashPassword("Admin123!"),
+        passwordHash: await hashPassword(adminPassword),
         role: "admin",
       });
       console.log(`   ✓ Created admin: ${adminEmail}`);
@@ -137,7 +138,8 @@ async function main() {
 
     // 4. Create demo student
     console.log("\n👤 Creating demo student...");
-    const studentEmail = "student@storysprint.local";
+    const studentEmail = process.env.SEED_STUDENT_EMAIL || "student@storysprint.local";
+    const studentPassword = process.env.SEED_STUDENT_PASSWORD || "Student123!";
     let studentRow = await db
       .select()
       .from(schema.users)
@@ -151,7 +153,7 @@ async function main() {
         .values({
           name: "Demo Student",
           email: studentEmail,
-          passwordHash: await hashPassword("Student123!"),
+          passwordHash: await hashPassword(studentPassword),
           role: "student",
         })
         .returning();

@@ -18,11 +18,16 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 20_000);
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        credentials: "same-origin",
+        signal: controller.signal,
+        body: JSON.stringify({ email: email.trim(), password }),
       });
+      window.clearTimeout(timeout);
       const data = await res.json();
 
       if (!res.ok) {
@@ -37,8 +42,10 @@ export default function LoginPage() {
         router.push("/dashboard");
       }
       router.refresh();
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      setError(err instanceof DOMException && err.name === "AbortError"
+        ? "Login timed out. Check the database connection and try again."
+        : "Something went wrong. Please try again.");
       setLoading(false);
     }
   }

@@ -115,8 +115,11 @@ export async function seedDatabase(): Promise<{
     }
   }
 
-  // 3. Create admin user
-  const adminEmail = "admin@storysprint.local";
+  // 3. Create admin user. Production credentials come from private environment variables.
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@storysprint.local";
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD ||
+    (process.env.NODE_ENV === "production" ? "" : "Admin123!");
+  if (!adminPassword) throw new Error("SEED_ADMIN_PASSWORD is required in production");
   let adminRow = await db
     .select()
     .from(users)
@@ -130,7 +133,7 @@ export async function seedDatabase(): Promise<{
       .values({
         name: "Course Administrator",
         email: adminEmail,
-        passwordHash: await hashPassword("Admin123!"),
+        passwordHash: await hashPassword(adminPassword),
         role: "admin",
       })
       .returning();
@@ -141,7 +144,10 @@ export async function seedDatabase(): Promise<{
   }
 
   // 4. Create demo student
-  const studentEmail = "student@storysprint.local";
+  const studentEmail = process.env.SEED_STUDENT_EMAIL || "student@storysprint.local";
+  const studentPassword = process.env.SEED_STUDENT_PASSWORD ||
+    (process.env.NODE_ENV === "production" ? "" : "Student123!");
+  if (!studentPassword) throw new Error("SEED_STUDENT_PASSWORD is required in production");
   let studentRow = await db
     .select()
     .from(users)
@@ -155,7 +161,7 @@ export async function seedDatabase(): Promise<{
       .values({
         name: "Demo Student",
         email: studentEmail,
-        passwordHash: await hashPassword("Student123!"),
+        passwordHash: await hashPassword(studentPassword),
         role: "student",
       })
       .returning();
