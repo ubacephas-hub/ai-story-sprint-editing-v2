@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
-import { courses, modules, lessons, courseAccess, lessonProgress, resources } from "@/db/schema";
+import { courses, modules, lessons, courseAccess, lessonProgress } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,6 @@ export default async function DashboardPage() {
   const completed=flat.filter(x=>x.progress?.status==="completed").length;
   const percent=flat.length?Math.round(completed/flat.length*100):0;
   const next=flat.find(x=>x.progress?.status==="in_progress")||flat.find(x=>x.progress?.status!=="completed")||flat[flat.length-1];
-  const existingResources=active?await db.select().from(resources).innerJoin(lessons,eq(resources.lessonId,lessons.id)).limit(4):[];
   const icons=["✓","▱","▯","☷"];
 
   return <><Navbar user={user}/><main><div className="app-page">
@@ -58,8 +57,6 @@ export default async function DashboardPage() {
         <div className="lesson-outline">{m.lessons.map((item,li)=>{const globalNum=courseModules.slice(0,i).reduce((sum,x)=>sum+x.lessons.length,0)+li+1;return <Link href={`/lesson/${item.lesson.id}`} key={item.lesson.id}><span className="flex items-center gap-3"><span className={`lesson-status-dot ${item.progress?.status||""}`}/><span><small className="block text-[var(--muted)]">Lesson {globalNum}</small><strong>{item.lesson.title}</strong></span></span><span>→</span></Link>})}</div>
       </details>})}</div>
 
-      <div className="section-heading"><h2>Quick Access</h2><Link href="/resources" className="text-sm font-semibold">View all resources</Link></div>
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">{existingResources.length?existingResources.map(({resources:r})=><Link key={r.id} href="/resources" className="soft-card resource-tile text-[var(--ink)]"><span className="resource-icon">{r.type==="link"?"↗":r.type==="text"?"☷":"□"}</span><strong>{r.title}</strong><p className="text-sm text-[var(--muted)]">{r.description||`Course ${r.type} resource`}</p><span className="resource-action text-sm font-bold text-[var(--brand)]">Open →</span></Link>):["Phone Workflow","Laptop Workflow","Prompt Resources","Tools & Glossary"].map((x,i)=><div className="soft-card resource-tile" key={x}><span className="resource-icon">{icons[i]}</span><strong>{x}</strong><p className="text-sm text-[var(--muted)]">Resources will appear here when added.</p></div>)}</div>
     </>}
   </div></main></>;
 }
