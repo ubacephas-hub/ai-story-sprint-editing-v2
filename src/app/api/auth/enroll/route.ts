@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users, courses, courseAccess } from "@/db/schema";
 import { sql } from "drizzle-orm";
 import { hashPassword, createSession } from "@/lib/auth";
+import { sendAccountCreatedEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
     }
 
     await createSession(newUser.id);
+    try { await sendAccountCreatedEmail(newUser.email, newUser.name); }
+    catch (emailError) { console.error("Account email failed:", emailError); }
 
     return NextResponse.json({ success: true, role: "student" });
   } catch (error) {

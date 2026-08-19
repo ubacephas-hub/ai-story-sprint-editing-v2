@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { lessonProgress } from "@/db/schema";
+import { lessonProgress, lessons, modules, courseAccess } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 
@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
     if (!lessonId || !["in_progress", "completed"].includes(status)) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
+
+    const allowed = await db.select({ lessonId: lessons.id }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).innerJoin(courseAccess, and(eq(courseAccess.courseId, modules.courseId), eq(courseAccess.userId, session.user.id), eq(courseAccess.status, "active"))).where(eq(lessons.id, lessonId)).limit(1);
+    if (!allowed.length) return NextResponse.json({ error: "Active course access is required" }, { status: 403 });
 
     const existing = await db
       .select()

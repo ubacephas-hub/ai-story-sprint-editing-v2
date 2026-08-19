@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import PasswordField from "@/components/PasswordField";
 
 interface StudentInfo {
@@ -97,6 +98,11 @@ export default function StudentActions({
     const res=await fetch("/api/admin/students",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:studentId,confirmation:typed})});
     const data=await res.json(); if(!res.ok) alert(data.error||"Removal failed"); else {setSuccess(data.message);router.refresh();}
   }
+  async function sendReset(email:string){
+    if(!confirm(`Send a password-reset email to ${email}?`))return;
+    await fetch("/api/auth/forgot-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+    setSuccess("If the email account is valid, a secure reset link has been sent.");
+  }
   async function restoreStudent(studentId:number){
     if(!confirm("Restore this student as pending approval?"))return;
     const res=await fetch("/api/admin/students",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({userId:studentId,action:"restore"})});
@@ -170,11 +176,13 @@ export default function StudentActions({
                       {student.email}
                     </div>
                     <div className="text-sm text-[var(--muted)] mt-1">
-                      Progress: {student.completedLessons}/{totalLessons}{" "}
-                      lessons
+                      Progress: {student.completedLessons}/{totalLessons} lessons ({totalLessons?Math.round(student.completedLessons/totalLessons*100):0}%)
+                      <div className="progress-bar mt-1" style={{height:6,width:180}}><span className="progress-bar-fill" style={{width:`${totalLessons?student.completedLessons/totalLessons*100:0}%`}}/></div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    <Link className="btn small secondary" href={`/admin/students/${student.id}`}>View Progress</Link>
+                    {student.accountStatus!=="disabled"&&<button className="btn small secondary" onClick={()=>sendReset(student.email)}>Send Reset</button>}
                     {student.accountStatus === "disabled" ? <><span className="badge suspended">Removed</span><button className="btn small secondary" onClick={()=>restoreStudent(student.id)}>Restore</button></> : <>
                       <span className={`badge ${student.accessStatus}`}>{student.accessStatus}</span>
                       {student.accessStatus !== "active" && <button className="btn small ok" onClick={()=>updateAccess(student.id,"active")}>Activate</button>}
