@@ -96,7 +96,8 @@ export default function LoginPage() {
                 {loading ? "Logging in…" : "Login"}
               </button>
 
-              <p className="mt-4 text-center text-sm text-[var(--muted)]">
+              <p className="mt-4 text-center text-sm"><Link href="/forgot-password" className="font-semibold">Forgot password?</Link></p>
+              <p className="mt-3 text-center text-sm text-[var(--muted)]">
                 New here?{" "}
                 <Link href="/enroll" className="font-semibold">
                   Create an account
