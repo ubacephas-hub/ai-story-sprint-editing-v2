@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 interface NavbarProps {
@@ -23,6 +24,19 @@ const adminLinks = [
 export default function Navbar({ user }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    const saved = localStorage.getItem("storysprint-sidebar") === "collapsed";
+    const timer = window.setTimeout(() => setCollapsed(saved), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem("storysprint-sidebar", next ? "collapsed" : "open");
+      return next;
+    });
+  }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -45,11 +59,11 @@ export default function Navbar({ user }: NavbarProps) {
       <Link href={home} className="brand-mark"><span className="brand-glyph">✦</span><span>AI StorySprint<br/><small>Editing</small></span></Link>
       <span className="mobile-user-dot">{user.name.slice(0,1).toUpperCase()}</span>
     </header>
-    <aside className="app-sidebar authenticated-shell">
-      <Link href={home} className="sidebar-brand"><span className="brand-glyph">✦</span><span>AI StorySprint<br/><small>{user.role === "admin" ? "Editing Admin" : "Editing"}</small></span></Link>
-      <nav className="sidebar-links">{links.map(([href, icon, label]) => <Link key={href} href={href} className={isActive(href) ? "active" : ""}><span>{icon}</span>{label}</Link>)}</nav>
+    <aside className={`app-sidebar authenticated-shell ${collapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-brand-row"><Link href={home} className="sidebar-brand"><span className="brand-glyph">✦</span><span className="sidebar-label">AI StorySprint<br/><small>{user.role === "admin" ? "Editing Admin" : "Editing"}</small></span></Link><button type="button" onClick={toggleSidebar} className="sidebar-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? "›" : "‹"}</button></div>
+      <nav className="sidebar-links">{links.map(([href, icon, label]) => <Link key={href} href={href} title={collapsed ? label : undefined} className={isActive(href) ? "active" : ""}><span>{icon}</span><span className="sidebar-label">{label}</span></Link>)}</nav>
       <div className="sidebar-encouragement"><strong>{user.role === "admin" ? "Course control" : "Keep going! ✨"}</strong><p>{user.role === "admin" ? "Manage learning with confidence." : "You’re doing great."}</p><div className="rocket">🚀</div></div>
-      <button onClick={handleLogout} className="sidebar-logout">↪ Logout</button>
+      <button onClick={handleLogout} className="sidebar-logout" title={collapsed ? "Logout" : undefined}>↪ <span className="sidebar-label">Logout</span></button>
     </aside>
     <nav className="mobile-bottom-nav">{links.map(([href, icon, label]) => <Link key={href} href={href} className={isActive(href) ? "active" : ""}><span>{icon}</span><small>{label.replace("My ", "")}</small></Link>)}<button onClick={handleLogout}><span>↪</span><small>Logout</small></button></nav>
   </>;
