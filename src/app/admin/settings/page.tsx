@@ -1,0 +1,6 @@
+import { redirect } from "next/navigation";
+import Navbar from "@/components/Navbar";
+import ChangePasswordForm from "@/app/account/ChangePasswordForm";
+import { getSession } from "@/lib/auth";
+export const dynamic="force-dynamic";
+export default async function AdminSettingsPage(){const session=await getSession();if(!session)redirect("/login");if(session.user.role!=="admin")redirect("/dashboard");return <><Navbar user={session.user}/><main><div className="app-page"><p className="page-eyebrow">Administrator</p><h1 className="text-3xl font-bold mt-1 mb-6">Settings & Security</h1><div className="grid lg:grid-cols-[280px_1fr] gap-4"><aside className="soft-card h-fit"><div className="w-16 h-16 rounded-full bg-[#ede8ff] text-[var(--brand)] grid place-items-center text-2xl font-bold mb-3">{session.user.name.slice(0,1).toUpperCase()}</div><strong>{session.user.name}</strong><p className="text-sm text-[var(--muted)] break-all">{session.user.email}</p><p className="mt-4"><span className="badge active">Administrator</span></p></aside><section className="soft-card"><h2 className="text-xl font-bold">Login & Security</h2><p className="text-[var(--muted)] mt-1">Change your administrator password securely. All current administrator sessions will end after the change.</p><ChangePasswordForm/></section></div></div></main></>}

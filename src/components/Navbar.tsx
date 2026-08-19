@@ -19,6 +19,7 @@ const adminLinks = [
   ["/admin/students", "♙", "Students"],
   ["/admin/lessons", "▣", "Lessons"],
   ["/admin/resources", "□", "Resources"],
+  ["/admin/settings", "⚙", "Settings"],
 ] as const;
 
 export default function Navbar({ user }: NavbarProps) {
