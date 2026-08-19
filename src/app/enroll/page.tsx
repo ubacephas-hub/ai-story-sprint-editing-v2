@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import PasswordField from "@/components/PasswordField";
 
 export default function EnrollPage() {
   const router = useRouter();
@@ -83,23 +84,8 @@ export default function EnrollPage() {
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="password">Password</label>
-                <input
-                  type="password"
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="confirmPassword">Confirm password</label>
-                <input type="password" id="confirmPassword" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} autoComplete="new-password" />
-              </div>
+              <PasswordField label="Password" id="password" value={password} onChange={(e)=>setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <PasswordField label="Confirm password" id="confirmPassword" value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
 
               <button
                 type="submit"

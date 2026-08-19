@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PasswordField from "@/components/PasswordField";
 
 export default function SetupPage() {
   const [secret, setSecret] = useState("");
@@ -22,7 +23,7 @@ export default function SetupPage() {
     <h1 className="text-2xl font-semibold mb-2">Database setup</h1>
     <p className="text-[var(--muted)] mb-6">Enter the private SETUP_SECRET configured in Vercel. This operation is safe to run more than once.</p>
     <form onSubmit={submit}>
-      <div className="form-group"><label htmlFor="secret">Setup secret</label><input id="secret" type="password" value={secret} onChange={e=>setSecret(e.target.value)} required /></div>
+      <PasswordField label="Setup secret" id="secret" value={secret} onChange={e=>setSecret(e.target.value)} required />
       {message && <div className="alert mb-4">{message}</div>}
       <button className="btn w-full" type="submit" disabled={loading}>{loading ? "Setting up…" : "Initialize database"}</button>
     </form>
