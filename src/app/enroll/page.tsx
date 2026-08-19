@@ -10,6 +10,7 @@ export default function EnrollPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -17,6 +18,9 @@ export default function EnrollPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    if (password !== confirmPassword) {
+      setError("Passwords do not match"); setLoading(false); return;
+    }
 
     try {
       const res = await fetch("/api/auth/enroll", {
@@ -32,7 +36,7 @@ export default function EnrollPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push("/pending");
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -90,6 +94,11 @@ export default function EnrollPage() {
                   minLength={6}
                   autoComplete="new-password"
                 />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="confirmPassword">Confirm password</label>
+                <input type="password" id="confirmPassword" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} autoComplete="new-password" />
               </div>
 
               <button

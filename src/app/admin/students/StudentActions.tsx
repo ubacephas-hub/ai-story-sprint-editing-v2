@@ -31,6 +31,12 @@ export default function StudentActions({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const visibleStudents = students.filter((s) =>
+    (filter === "all" || s.accessStatus === filter) &&
+    `${s.name} ${s.email}`.toLowerCase().includes(query.toLowerCase())
+  );
 
   async function handleAddStudent(e: React.FormEvent) {
     e.preventDefault();
@@ -135,15 +141,19 @@ export default function StudentActions({
       </div>
 
       {/* Student list */}
+      <div className="grid sm:grid-cols-4 gap-3 mb-4">
+        <div className="soft-card"><span className="text-sm text-[var(--muted)]">Total Students</span><strong className="block text-2xl">{students.length}</strong></div>
+        <div className="soft-card"><span className="text-sm text-[var(--muted)]">Active</span><strong className="block text-2xl text-[var(--ok)]">{students.filter(s=>s.accessStatus==="active").length}</strong></div>
+        <div className="soft-card"><span className="text-sm text-[var(--muted)]">Pending Approval</span><strong className="block text-2xl text-[var(--warn)]">{students.filter(s=>s.accessStatus==="pending").length}</strong></div>
+        <div className="soft-card"><span className="text-sm text-[var(--muted)]">Suspended</span><strong className="block text-2xl text-[var(--danger)]">{students.filter(s=>s.accessStatus==="suspended").length}</strong></div>
+      </div>
       <div className="card">
-        <h3 className="text-lg font-semibold mb-3">
-          All Students ({students.length})
-        </h3>
-        {students.length === 0 ? (
+        <div className="flex justify-between gap-3 flex-wrap mb-4"><h3 className="text-lg font-semibold">Students</h3><div className="flex gap-2"><input aria-label="Search students" placeholder="Search students…" value={query} onChange={e=>setQuery(e.target.value)} className="px-3 py-2 border border-[var(--line)] rounded-lg"/><select aria-label="Filter students" value={filter} onChange={e=>setFilter(e.target.value)} className="px-3 py-2 border border-[var(--line)] rounded-lg"><option value="all">All</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option></select></div></div>
+        {visibleStudents.length === 0 ? (
           <p className="text-[var(--muted)]">No students enrolled yet.</p>
         ) : (
           <div className="grid gap-3">
-            {students.map((student) => (
+            {visibleStudents.map((student) => (
               <div
                 key={student.id}
                 className="p-3 border border-[var(--line)] rounded-lg"

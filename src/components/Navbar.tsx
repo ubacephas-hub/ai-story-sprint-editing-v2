@@ -1,76 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface NavbarProps {
-  user?: {
-    name: string;
-    role: string;
-  } | null;
+  user?: { name: string; role: string } | null;
 }
+
+const studentLinks = [
+  ["/dashboard", "⌂", "Dashboard"],
+  ["/dashboard#course", "▣", "My Course"],
+  ["/resources", "□", "Resources"],
+  ["/account", "○", "Account"],
+] as const;
+const adminLinks = [
+  ["/admin", "⌂", "Overview"],
+  ["/admin/students", "♙", "Students"],
+  ["/admin/lessons", "▣", "Lessons"],
+  ["/admin/resources", "□", "Resources"],
+] as const;
 
 export default function Navbar({ user }: NavbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
-    router.refresh();
+    router.push("/"); router.refresh();
   }
 
-  return (
-    <header className="bg-white border-b border-[var(--line)] sticky top-0 z-50">
-      <nav className="w-[min(1080px,calc(100%-32px))] mx-auto min-h-[66px] flex items-center gap-5">
-        <Link
-          href="/"
-          className="font-extrabold text-[var(--ink)] mr-auto no-underline"
-        >
-          AI StorySprint Editing
-        </Link>
-        <div className="flex gap-2 items-center">
-          {user ? (
-            <>
-              {user.role === "admin" ? (
-                <Link
-                  href="/admin"
-                  className="px-3 py-2.5 text-[var(--muted)] font-semibold rounded-lg hover:bg-[var(--bg)] hover:text-[var(--ink)] no-underline"
-                >
-                  Dashboard
-                </Link>
-              ) : (
-                <Link
-                  href="/dashboard"
-                  className="px-3 py-2.5 text-[var(--muted)] font-semibold rounded-lg hover:bg-[var(--bg)] hover:text-[var(--ink)] no-underline"
-                >
-                  Dashboard
-                </Link>
-              )}
-              <button
-                onClick={handleLogout}
-                className="px-3 py-2.5 text-[var(--muted)] font-semibold rounded-lg hover:bg-[var(--bg)] hover:text-[var(--ink)] cursor-pointer bg-transparent border-0 text-[15px]"
-              >
-                Logout
-              </button>
-            </>
-          ) : (
-            <>
-              <Link
-                href="/enroll"
-                className="px-3 py-2.5 text-[var(--muted)] font-semibold rounded-lg hover:bg-[var(--bg)] hover:text-[var(--ink)] no-underline"
-              >
-                Enroll
-              </Link>
-              <Link
-                href="/login"
-                className="px-3 py-2.5 text-[var(--muted)] font-semibold rounded-lg hover:bg-[var(--bg)] hover:text-[var(--ink)] no-underline"
-              >
-                Login
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
+  if (!user) {
+    return <header className="public-header"><nav className="public-nav">
+      <Link href="/" className="brand-mark"><span className="brand-glyph">✦</span><span>AI StorySprint<br/><small>Editing</small></span></Link>
+      <div className="flex gap-2 items-center"><Link href="/enroll" className="nav-quiet">Enroll</Link><Link href="/login" className="nav-quiet">Login</Link></div>
+    </nav></header>;
+  }
+
+  const links = user.role === "admin" ? adminLinks : studentLinks;
+  const home = user.role === "admin" ? "/admin" : "/dashboard";
+  const isActive = (href: string) => href.split("#")[0] === pathname || (href !== home && pathname.startsWith(href.split("#")[0] + "/"));
+
+  return <>
+    <header className="mobile-app-header authenticated-shell">
+      <Link href={home} className="brand-mark"><span className="brand-glyph">✦</span><span>AI StorySprint<br/><small>Editing</small></span></Link>
+      <span className="mobile-user-dot">{user.name.slice(0,1).toUpperCase()}</span>
     </header>
-  );
+    <aside className="app-sidebar authenticated-shell">
+      <Link href={home} className="sidebar-brand"><span className="brand-glyph">✦</span><span>AI StorySprint<br/><small>{user.role === "admin" ? "Editing Admin" : "Editing"}</small></span></Link>
+      <nav className="sidebar-links">{links.map(([href, icon, label]) => <Link key={href} href={href} className={isActive(href) ? "active" : ""}><span>{icon}</span>{label}</Link>)}</nav>
+      <div className="sidebar-encouragement"><strong>{user.role === "admin" ? "Course control" : "Keep going! ✨"}</strong><p>{user.role === "admin" ? "Manage learning with confidence." : "You’re doing great."}</p><div className="rocket">🚀</div></div>
+      <button onClick={handleLogout} className="sidebar-logout">↪ Logout</button>
+    </aside>
+    <nav className="mobile-bottom-nav">{links.map(([href, icon, label]) => <Link key={href} href={href} className={isActive(href) ? "active" : ""}><span>{icon}</span><small>{label.replace("My ", "")}</small></Link>)}<button onClick={handleLogout}><span>↪</span><small>Logout</small></button></nav>
+  </>;
 }
