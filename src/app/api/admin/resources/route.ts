@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { type, lessonId, title, url, content } = body;
+    const { type, lessonId, title, url, content, description, position } = body;
 
     if (!type || !lessonId || !title) {
       return NextResponse.json(
@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
       title: title.trim(),
       url: url?.trim() || null,
       content: content?.trim() || null,
+      description: description?.trim() || null,
+      position: Number(position) || 0,
     });
 
     return NextResponse.json({ success: true });
@@ -51,6 +53,15 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const session=await getSession();if(!session||session.user.role!=="admin")return NextResponse.json({error:"Unauthorized"},{status:401});
+    const {id,title,description,position}=await req.json();if(!id||typeof title!=="string"||title.trim().length<1)return NextResponse.json({error:"Resource and title are required"},{status:400});
+    await db.update(resources).set({title:title.trim(),description:description?.trim()||null,position:Number(position)||0}).where(eq(resources.id,id));
+    return NextResponse.json({success:true});
+  } catch(error){console.error("Update resource error:",error);return NextResponse.json({error:"Resource update failed"},{status:500})}
 }
 
 export async function DELETE(req: NextRequest) {

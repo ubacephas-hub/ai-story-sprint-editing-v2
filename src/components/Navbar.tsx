@@ -17,6 +17,7 @@ const studentLinks = [
 const adminLinks = [
   ["/admin", "⌂", "Overview"],
   ["/admin/students", "♙", "Students"],
+  ["/admin/modules", "◇", "Modules"],
   ["/admin/lessons", "▣", "Lessons"],
   ["/admin/resources", "□", "Resources"],
   ["/admin/settings", "⚙", "Settings"],
