@@ -19,6 +19,8 @@ export const users = pgTable(
     role: text("role").notNull().default("student"), // 'admin' | 'student'
     accountStatus: text("account_status").notNull().default("active"), // 'active' | 'disabled'
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)]
 );
@@ -84,6 +86,10 @@ export const courseAccess = pgTable(
       .references(() => courses.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("pending"), // 'pending' | 'active' | 'suspended'
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("course_access_user_course_idx").on(t.userId, t.courseId),
@@ -115,6 +121,14 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const settings = pgTable("settings", {

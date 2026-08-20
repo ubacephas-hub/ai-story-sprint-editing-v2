@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await db.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(sql`${users.id} = ${user.id}`);
     await createSession(user.id);
 
     return NextResponse.json({

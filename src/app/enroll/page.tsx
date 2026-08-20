@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import PasswordField from "@/components/PasswordField";
 
 export default function EnrollPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -17,6 +19,9 @@ export default function EnrollPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    if (password !== confirmPassword) {
+      setError("Passwords do not match"); setLoading(false); return;
+    }
 
     try {
       const res = await fetch("/api/auth/enroll", {
@@ -32,7 +37,7 @@ export default function EnrollPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push("/pending");
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -79,18 +84,8 @@ export default function EnrollPage() {
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="password">Password</label>
-                <input
-                  type="password"
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-              </div>
+              <PasswordField label="Password" id="password" value={password} onChange={(e)=>setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <PasswordField label="Confirm password" id="confirmPassword" value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
 
               <button
                 type="submit"

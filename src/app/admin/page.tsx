@@ -40,7 +40,7 @@ export default async function AdminDashboardPage() {
   return (
     <>
       <Navbar user={user} />
-      <main className="w-[min(1080px,calc(100%-32px))] mx-auto py-8">
+      <main><div className="app-page">
         <h1 className="text-[clamp(28px,5vw,46px)] font-semibold leading-[1.05] mb-2">
           Admin Dashboard
         </h1>
@@ -50,25 +50,25 @@ export default async function AdminDashboardPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-          <div className="card text-center">
+          <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl">
               {Number(totalStudents[0].count)}
             </strong>
             <span className="text-[var(--muted)] text-sm">Students</span>
           </div>
-          <div className="card text-center">
+          <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl">
               {Number(totalModules[0].count)}
             </strong>
             <span className="text-[var(--muted)] text-sm">Modules</span>
           </div>
-          <div className="card text-center">
+          <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl">
               {Number(totalLessons[0].count)}
             </strong>
             <span className="text-[var(--muted)] text-sm">Lessons</span>
           </div>
-          <div className="card text-center">
+          <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl text-[var(--warn)]">
               {Number(pendingAccess[0].count)}
             </strong>
@@ -82,7 +82,7 @@ export default async function AdminDashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Link
             href="/admin/students"
-            className="card hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)]"
+            className="card admin-stat hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)] bg-gradient-to-br from-white to-[#f8f6ff]"
           >
             <h3 className="text-lg font-semibold mb-1">Students</h3>
             <p className="text-sm text-[var(--muted)]">
@@ -91,7 +91,7 @@ export default async function AdminDashboardPage() {
           </Link>
           <Link
             href="/admin/lessons"
-            className="card hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)]"
+            className="card admin-stat hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)] bg-gradient-to-br from-white to-[#f8f6ff]"
           >
             <h3 className="text-lg font-semibold mb-1">Lessons</h3>
             <p className="text-sm text-[var(--muted)]">
@@ -100,7 +100,7 @@ export default async function AdminDashboardPage() {
           </Link>
           <Link
             href="/admin/resources"
-            className="card hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)]"
+            className="card admin-stat hover:border-[var(--brand)] transition-colors no-underline text-[var(--ink)] bg-gradient-to-br from-white to-[#f8f6ff]"
           >
             <h3 className="text-lg font-semibold mb-1">Resources</h3>
             <p className="text-sm text-[var(--muted)]">
@@ -108,7 +108,7 @@ export default async function AdminDashboardPage() {
             </p>
           </Link>
         </div>
-      </main>
+      </div></main>
     </>
   );
 }

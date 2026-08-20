@@ -17,6 +17,7 @@ interface Resource {
   url: string | null;
   content: string | null;
   description: string | null;
+  position: number;
 }
 
 interface Props {
@@ -33,6 +34,8 @@ export default function ResourceActions({ lessons, resources }: Props) {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [content, setContent] = useState("");
+  const [description, setDescription] = useState("");
+  const [position, setPosition] = useState(0);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -53,6 +56,8 @@ export default function ResourceActions({ lessons, resources }: Props) {
           title,
           url: type === "link" ? url : undefined,
           content: type === "text" ? content : undefined,
+          description,
+          position,
         }),
       });
       const data = await res.json();
@@ -62,7 +67,7 @@ export default function ResourceActions({ lessons, resources }: Props) {
         setSuccess("Resource added successfully");
         setTitle("");
         setUrl("");
-        setContent("");
+        setContent(""); setDescription(""); setPosition(0);
         router.refresh();
       }
     } catch {
@@ -71,6 +76,13 @@ export default function ResourceActions({ lessons, resources }: Props) {
     setLoading(false);
   }
 
+  async function handleEdit(resource:Resource){
+    const title=prompt("Resource title",resource.title);if(title===null)return;
+    const description=prompt("Description (optional)",resource.description||"");if(description===null)return;
+    const order=prompt("Display order",String(resource.position));if(order===null)return;
+    const res=await fetch("/api/admin/resources",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:resource.id,title,description,position:Number(order)})});
+    const data=await res.json();if(!res.ok)alert(data.error||"Update failed");else router.refresh();
+  }
   async function handleDelete(resourceId: number) {
     if (!confirm("Delete this resource?")) return;
     try {
@@ -158,6 +170,7 @@ export default function ResourceActions({ lessons, resources }: Props) {
             </div>
           )}
 
+          <div className="grid sm:grid-cols-[1fr_120px] gap-3"><div className="form-group"><label>Description (optional)</label><input value={description} onChange={e=>setDescription(e.target.value)}/></div><div className="form-group"><label>Order</label><input type="number" min={0} value={position} onChange={e=>setPosition(Number(e.target.value))}/></div></div>
           <button type="submit" className="btn small" disabled={loading}>
             {loading ? "Adding…" : "Add Resource"}
           </button>
@@ -192,12 +205,12 @@ export default function ResourceActions({ lessons, resources }: Props) {
                           </span>
                         )}
                       </div>
-                      <button
+                      <div className="flex gap-2"><button className="btn small secondary" onClick={()=>handleEdit(r)}>Edit</button><button
                         className="btn small danger"
                         onClick={() => handleDelete(r.id)}
                       >
                         Delete
-                      </button>
+                      </button></div>
                     </div>
                   ))}
                 </div>

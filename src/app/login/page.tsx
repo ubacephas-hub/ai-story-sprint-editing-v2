@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import PasswordField from "@/components/PasswordField";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -76,17 +77,7 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="password">Password</label>
-                <input
-                  type="password"
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
+              <PasswordField label="Password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
 
               <button
                 type="submit"
@@ -96,7 +87,8 @@ export default function LoginPage() {
                 {loading ? "Logging in…" : "Login"}
               </button>
 
-              <p className="mt-4 text-center text-sm text-[var(--muted)]">
+              <p className="mt-4 text-center text-sm"><Link href="/forgot-password" className="font-semibold">Forgot password?</Link></p>
+              <p className="mt-3 text-center text-sm text-[var(--muted)]">
                 New here?{" "}
                 <Link href="/enroll" className="font-semibold">
                   Create an account
