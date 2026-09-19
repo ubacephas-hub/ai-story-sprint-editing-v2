@@ -1,7 +1,7 @@
 import { pool } from "@/db";
 import { seedDatabase, getDatabaseCounts } from "@/lib/seed";
 
-const schemaSql = `
+export const schemaSql = `
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
   password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'student',
@@ -37,7 +37,14 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
   id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'in_progress', updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  playback_position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+  furthest_position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+  duration_seconds DOUBLE PRECISION,
+  watched_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+  percent_complete DOUBLE PRECISION NOT NULL DEFAULT 0,
+  started_at TIMESTAMPTZ,
+  last_watched_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS lesson_progress_user_lesson_idx ON lesson_progress(user_id, lesson_id);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -57,7 +64,26 @@ ALTER TABLE course_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NU
 ALTER TABLE course_access ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 ALTER TABLE course_access ADD COLUMN IF NOT EXISTS approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE course_access ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS playback_position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS furthest_position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS duration_seconds DOUBLE PRECISION;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS watched_seconds DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS percent_complete DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE lesson_progress ADD COLUMN IF NOT EXISTS last_watched_at TIMESTAMPTZ;
+UPDATE lesson_progress SET percent_complete = 100 WHERE status = 'completed' AND percent_complete < 100;
+CREATE INDEX IF NOT EXISTS lesson_progress_user_last_watched_idx ON lesson_progress(user_id, last_watched_at DESC);
 `;
+
+export interface SetupSchemaClient {
+  query(sql: string): Promise<unknown>;
+}
+
+/** Execute the schema portion used by setupDatabase. Kept separate so the
+ * additive upgrade order can be tested without touching a real database. */
+export async function applySetupSchema(client: SetupSchemaClient): Promise<void> {
+  await client.query(schemaSql);
+}
 
 export async function setupDatabase() {
   if (!pool) throw new Error("DATABASE_URL is not configured");
@@ -65,7 +91,7 @@ export async function setupDatabase() {
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(8462107)");
-    await client.query(schemaSql);
+    await applySetupSchema(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

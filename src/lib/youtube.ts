@@ -70,6 +70,10 @@ export function isYouTubeUrl(raw: string): boolean {
   return parseYouTubeUrl(raw) !== null;
 }
 
+export function isYouTubeVideoId(value: string): boolean {
+  return YOUTUBE_ID_RE.test(value.trim());
+}
+
 export function getYouTubeEmbedUrl(videoId: string): string {
   return `https://www.youtube-nocookie.com/embed/${videoId}`;
 }

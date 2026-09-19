@@ -2,22 +2,33 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseYouTubeUrl, getYouTubeEmbedUrl } from "@/lib/youtube";
+import { getYouTubeEmbedUrl, parseYouTubeUrl } from "@/lib/youtube";
 
 interface Lesson {
   id: number;
+  moduleId: number;
   title: string;
   description: string | null;
+  position: number;
   videoKind: string;
   videoSource: string | null;
 }
 
-interface Props {
-  lesson: Lesson;
+interface ModuleOption {
+  id: number;
+  title: string;
+  position: number;
 }
 
-export default function LessonEditForm({ lesson }: Props) {
+interface Props {
+  lesson: Lesson;
+  modules: ModuleOption[];
+}
+
+export default function LessonEditForm({ lesson, modules }: Props) {
   const router = useRouter();
+  const [moduleId, setModuleId] = useState(lesson.moduleId);
+  const [position, setPosition] = useState(Math.max(1, lesson.position));
   const [title, setTitle] = useState(lesson.title);
   const [description, setDescription] = useState(lesson.description || "");
   const [videoSource, setVideoSource] = useState(lesson.videoSource || "");
@@ -26,77 +37,62 @@ export default function LessonEditForm({ lesson }: Props) {
   const [loading, setLoading] = useState(false);
   const [videoError, setVideoError] = useState("");
 
-  // Live YouTube preview
   const youtubeId = videoSource ? parseYouTubeUrl(videoSource) : null;
   const isYouTube = youtubeId !== null;
 
-  function handleVideoSourceChange(val: string) {
-    setVideoSource(val);
+  function handleVideoSourceChange(value: string) {
+    setVideoSource(value);
     setVideoError("");
+    if (!value.trim()) return;
 
-    if (val.trim() === "") {
-      setVideoError("");
-      return;
-    }
-
-    // Check if it looks like a YouTube URL but is invalid
-    const lower = val.toLowerCase();
-    if (
-      lower.includes("youtube") ||
-      lower.includes("youtu.be")
-    ) {
-      const parsed = parseYouTubeUrl(val);
-      if (!parsed) {
-        setVideoError(
-          "This looks like a YouTube link but the format is not recognized. Supported formats: youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/..., youtube.com/embed/..."
-        );
+    try {
+      const url = new URL(value.trim());
+      const host = url.hostname.toLowerCase();
+      const looksLikeYouTube =
+        host === "youtube.com" ||
+        host === "www.youtube.com" ||
+        host === "m.youtube.com" ||
+        host === "youtu.be" ||
+        host === "www.youtube-nocookie.com";
+      if (looksLikeYouTube && !parseYouTubeUrl(value)) {
+        setVideoError("This YouTube URL is not recognized.");
       }
+    } catch {
+      setVideoError("Enter a valid HTTP or HTTPS URL.");
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setSuccess("");
     setLoading(true);
 
-    // Validate YouTube URL if provided
-    if (videoSource.trim()) {
-      const lower = videoSource.toLowerCase();
-      if (lower.includes("youtube") || lower.includes("youtu.be")) {
-        const parsed = parseYouTubeUrl(videoSource);
-        if (!parsed) {
-          setError(
-            "Invalid YouTube URL. Please use a standard YouTube link format."
-          );
-          setLoading(false);
-          return;
-        }
-      }
-    }
-
     try {
-      const res = await fetch("/api/admin/lessons", {
+      const response = await fetch("/api/admin/lessons", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: lesson.id,
+          moduleId,
+          position,
           title,
           description,
           videoSource: videoSource.trim(),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to save");
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Lesson could not be saved.");
       } else {
-        setSuccess("Lesson saved successfully");
+        setSuccess("Lesson saved successfully.");
         router.refresh();
       }
     } catch {
-      setError("Something went wrong");
+      setError("Something went wrong while saving the lesson.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
@@ -105,36 +101,69 @@ export default function LessonEditForm({ lesson }: Props) {
         {error && <div className="alert error">{error}</div>}
         {success && <div className="alert success">{success}</div>}
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="form-group">
+            <label htmlFor="edit-lesson-module">Module</label>
+            <select
+              id="edit-lesson-module"
+              value={moduleId}
+              onChange={(event) => setModuleId(Number(event.target.value))}
+            >
+              {modules.map((module) => (
+                <option key={module.id} value={module.id}>
+                  Module {module.position} — {module.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="edit-lesson-position">Order</label>
+            <input
+              id="edit-lesson-position"
+              type="number"
+              min={1}
+              value={position}
+              onChange={(event) => setPosition(Number(event.target.value))}
+              required
+            />
+          </div>
+        </div>
+
         <div className="form-group">
-          <label>Title</label>
+          <label htmlFor="edit-lesson-title">Title</label>
           <input
+            id="edit-lesson-title"
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(event) => setTitle(event.target.value)}
+            maxLength={240}
             required
           />
         </div>
 
         <div className="form-group">
-          <label>Description</label>
+          <label htmlFor="edit-lesson-description">Description / content</label>
           <textarea
+            id="edit-lesson-description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={7}
+            maxLength={50_000}
           />
         </div>
 
         <div className="form-group">
-          <label>
-            Video / Protected URL{" "}
+          <label htmlFor="edit-lesson-video">
+            Video source{" "}
             <span className="text-sm text-[var(--muted)] font-normal">
-              (YouTube URL, or direct MP4/HLS URL)
+              (YouTube URL or direct MP4/HLS URL)
             </span>
           </label>
           <input
-            type="text"
+            id="edit-lesson-video"
+            type="url"
             value={videoSource}
-            onChange={(e) => handleVideoSourceChange(e.target.value)}
+            onChange={(event) => handleVideoSourceChange(event.target.value)}
             placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
           />
           {videoError && (
@@ -144,22 +173,19 @@ export default function LessonEditForm({ lesson }: Props) {
           )}
           {isYouTube && (
             <p className="text-sm text-[var(--ok)] mt-1 font-semibold">
-              ✓ Valid YouTube video detected (ID: {youtubeId})
+              Valid YouTube video detected (ID: {youtubeId})
             </p>
           )}
           {videoSource.trim() && !isYouTube && !videoError && (
             <p className="text-sm text-[var(--muted)] mt-1">
-              Will be treated as a direct video source (MP4/HLS)
+              This will be treated as a direct video source.
             </p>
           )}
         </div>
 
-        {/* YouTube Preview */}
         {isYouTube && (
           <div className="mb-4">
-            <label className="block font-semibold mb-2 text-sm">
-              Preview:
-            </label>
+            <label className="block font-semibold mb-2 text-sm">Preview</label>
             <div className="video-container">
               <iframe
                 src={getYouTubeEmbedUrl(youtubeId)}
@@ -173,7 +199,7 @@ export default function LessonEditForm({ lesson }: Props) {
         )}
 
         <button type="submit" className="btn" disabled={loading}>
-          {loading ? "Saving…" : "Save Lesson"}
+          {loading ? "Saving…" : "Save lesson"}
         </button>
       </form>
     </div>

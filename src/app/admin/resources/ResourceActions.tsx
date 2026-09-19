@@ -1,7 +1,15 @@
 "use client";
 
+import { StorageClient } from "@supabase/storage-js";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  DOCUMENT_BUCKET,
+  getDocumentExtension,
+  getDocumentMimeType,
+  isSupportedDocumentSize,
+  MAX_DOCUMENT_BYTES,
+} from "@/lib/document-types";
 
 interface LessonOption {
   id: number;
@@ -16,6 +24,7 @@ interface Resource {
   title: string;
   url: string | null;
   content: string | null;
+  filePath: string | null;
   description: string | null;
   position: number;
 }
@@ -25,29 +34,117 @@ interface Props {
   resources: Resource[];
 }
 
+interface UploadResponse {
+  path: string;
+  token: string;
+  bucket: string;
+}
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+function uploadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return "The document upload failed. Check the file and try again.";
+}
+
 export default function ResourceActions({ lessons, resources }: Props) {
   const router = useRouter();
   const [type, setType] = useState("link");
-  const [lessonId, setLessonId] = useState(
-    lessons.length > 0 ? lessons[0].id : 0
-  );
+  const [lessonId, setLessonId] = useState(lessons[0]?.id ?? 0);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [content, setContent] = useState("");
   const [description, setDescription] = useState("");
   const [position, setPosition] = useState(0);
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [editing, setEditing] = useState<Resource | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
+  function resetForm() {
+    setTitle("");
+    setUrl("");
+    setContent("");
+    setDescription("");
+    setPosition(0);
+    setFile(null);
+  }
+
+  async function requestUploadUrl(selectedFile: File): Promise<UploadResponse> {
+    const response = await fetch("/api/admin/resources/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lessonId,
+        fileName: selectedFile.name,
+        fileSize: selectedFile.size,
+        contentType: selectedFile.type,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "A secure upload URL could not be created.");
+    }
+    return data as UploadResponse;
+  }
+
+  async function uploadDirectly(
+    selectedFile: File,
+    upload: UploadResponse
+  ): Promise<void> {
+    if (!SUPABASE_URL) {
+      throw new Error("Document uploads are not configured for this preview.");
+    }
+
+    // This browser client has no service key. The one-time token is accepted
+    // directly by Supabase Storage, so the document body never crosses Vercel.
+    const extension = getDocumentExtension(selectedFile.name, selectedFile.type);
+    const contentType = extension
+      ? getDocumentMimeType(extension)
+      : selectedFile.type || "application/octet-stream";
+    const storage = new StorageClient(
+      `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1`
+    );
+    const { error: uploadError } = await storage
+      .from(upload.bucket || DOCUMENT_BUCKET)
+      .uploadToSignedUrl(upload.path, upload.token, selectedFile, {
+        contentType,
+      });
+    if (uploadError) {
+      throw new Error("Supabase could not store the document.");
+    }
+  }
+
+  async function handleAdd(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setSuccess("");
-    setLoading(true);
+    setStatus("");
+    setSaving(true);
 
     try {
-      const res = await fetch("/api/admin/resources", {
+      let filePath: string | undefined;
+      if (type === "document") {
+        if (!file) throw new Error("Choose a PDF, DOCX, TXT, or ZIP file first.");
+        if (!isSupportedDocumentSize(file.size)) {
+          throw new Error(
+            `Documents must be ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB or smaller.`
+          );
+        }
+        if (!getDocumentExtension(file.name, file.type)) {
+          throw new Error("Only PDF, DOCX, TXT, and ZIP documents are supported.");
+        }
+        setStatus("Requesting a secure upload URL…");
+        const upload = await requestUploadUrl(file);
+        setStatus("Uploading directly to private storage…");
+        await uploadDirectly(file, upload);
+        filePath = upload.path;
+      }
+
+      setStatus("Saving resource details…");
+      const response = await fetch("/api/admin/resources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -56,164 +153,364 @@ export default function ResourceActions({ lessons, resources }: Props) {
           title,
           url: type === "link" ? url : undefined,
           content: type === "text" ? content : undefined,
+          filePath,
           description,
           position,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to add resource");
-      } else {
-        setSuccess("Resource added successfully");
-        setTitle("");
-        setUrl("");
-        setContent(""); setDescription(""); setPosition(0);
-        router.refresh();
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Resource could not be added.");
       }
-    } catch {
-      setError("Something went wrong");
+
+      setSuccess("Resource added successfully.");
+      resetForm();
+      setStatus("");
+      router.refresh();
+    } catch (caught) {
+      setError(uploadErrorMessage(caught));
+      setStatus("");
+    } finally {
+      setSaving(false);
     }
-    setLoading(false);
   }
 
-  async function handleEdit(resource:Resource){
-    const title=prompt("Resource title",resource.title);if(title===null)return;
-    const description=prompt("Description (optional)",resource.description||"");if(description===null)return;
-    const order=prompt("Display order",String(resource.position));if(order===null)return;
-    const res=await fetch("/api/admin/resources",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:resource.id,title,description,position:Number(order)})});
-    const data=await res.json();if(!res.ok)alert(data.error||"Update failed");else router.refresh();
-  }
-  async function handleDelete(resourceId: number) {
-    if (!confirm("Delete this resource?")) return;
+  async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing) return;
+    setError("");
+    setSuccess("");
+    setSaving(true);
+    const form = new FormData(event.currentTarget);
+    const nextTitle = String(form.get("edit-title") || "");
+    const nextDescription = String(form.get("edit-description") || "");
+    const nextPosition = Number(form.get("edit-position") || 0);
+    const nextLessonId = Number(form.get("edit-lesson") || 0);
+    const nextUrl = String(form.get("edit-url") || "");
+    const nextContent = String(form.get("edit-content") || "");
+
     try {
-      await fetch("/api/admin/resources", {
+      const response = await fetch("/api/admin/resources", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editing.id,
+          lessonId: nextLessonId,
+          title: nextTitle,
+          description: nextDescription,
+          position: nextPosition,
+          url: editing.type === "link" ? nextUrl : undefined,
+          content: editing.type === "text" ? nextContent : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Resource could not be updated.");
+      setEditing(null);
+      setSuccess("Resource updated successfully.");
+      router.refresh();
+    } catch (caught) {
+      setError(uploadErrorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(resourceId: number) {
+    if (!confirm("Delete this resource? This also removes its private document file.")) {
+      return;
+    }
+    setError("");
+    try {
+      const response = await fetch("/api/admin/resources", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: resourceId }),
+        body: JSON.stringify({ id: resourceId, confirmation: "DELETE RESOURCE" }),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Resource could not be deleted.");
+      setSuccess("Resource deleted.");
       router.refresh();
-    } catch {
-      alert("Failed to delete");
+    } catch (caught) {
+      setError(uploadErrorMessage(caught));
     }
   }
 
-  // Group resources by lesson
   const byLesson = new Map<number, Resource[]>();
-  for (const r of resources) {
-    const arr = byLesson.get(r.lessonId) || [];
-    arr.push(r);
-    byLesson.set(r.lessonId, arr);
+  for (const resource of resources) {
+    const current = byLesson.get(resource.lessonId) || [];
+    current.push(resource);
+    byLesson.set(resource.lessonId, current);
   }
 
   return (
     <>
       <div className="card mb-6">
-        <h3 className="text-lg font-semibold mb-3">Add Resource</h3>
+        <h2 className="text-lg font-semibold mb-1">Add resource</h2>
+        <p className="text-sm text-[var(--muted)] mb-4">
+          Links and notes stay in the database. Documents are sent directly from
+          this browser to the private Supabase bucket.
+        </p>
         {error && <div className="alert error">{error}</div>}
         {success && <div className="alert success">{success}</div>}
-        <form onSubmit={handleAdd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            <div className="form-group mb-0">
-              <label>Lesson</label>
-              <select
-                value={lessonId}
-                onChange={(e) => setLessonId(Number(e.target.value))}
-              >
-                {lessons.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.moduleTitle} — {l.title}
-                  </option>
-                ))}
-              </select>
+        {status && <div className="alert warning">{status}</div>}
+        {lessons.length === 0 ? (
+          <p className="text-[var(--muted)]">
+            Create a lesson before adding a resource.
+          </p>
+        ) : (
+          <form onSubmit={handleAdd}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="form-group">
+                <label htmlFor="resource-lesson">Lesson</label>
+                <select
+                  id="resource-lesson"
+                  value={lessonId}
+                  onChange={(event) => setLessonId(Number(event.target.value))}
+                  disabled={saving}
+                >
+                  {lessons.map((lesson) => (
+                    <option key={lesson.id} value={lesson.id}>
+                      {lesson.moduleTitle} — {lesson.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="resource-type">Type</label>
+                <select
+                  id="resource-type"
+                  value={type}
+                  onChange={(event) => {
+                    setType(event.target.value);
+                    setFile(null);
+                  }}
+                  disabled={saving}
+                >
+                  <option value="link">Link</option>
+                  <option value="text">Text</option>
+                  <option value="document">Document</option>
+                </select>
+              </div>
             </div>
-            <div className="form-group mb-0">
-              <label>Type</label>
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="link">Link</option>
-                <option value="text">Text</option>
-                <option value="document">Document</option>
-              </select>
-            </div>
-          </div>
 
-          <div className="form-group">
-            <label>Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </div>
-
-          {type === "link" && (
             <div className="form-group">
-              <label>URL</label>
+              <label htmlFor="resource-title">Title</label>
               <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                id="resource-title"
+                type="text"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                maxLength={240}
                 required
+                disabled={saving}
               />
             </div>
-          )}
 
-          {type === "text" && (
-            <div className="form-group">
-              <label>Content</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={4}
-                required
-              />
+            {type === "link" && (
+              <div className="form-group">
+                <label htmlFor="resource-url">URL</label>
+                <input
+                  id="resource-url"
+                  type="url"
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://example.com/resource"
+                  required
+                  disabled={saving}
+                />
+              </div>
+            )}
+
+            {type === "text" && (
+              <div className="form-group">
+                <label htmlFor="resource-content">Content</label>
+                <textarea
+                  id="resource-content"
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  rows={5}
+                  maxLength={100_000}
+                  required
+                  disabled={saving}
+                />
+              </div>
+            )}
+
+            {type === "document" && (
+              <div className="form-group">
+                <label htmlFor="resource-file">Document file</label>
+                <input
+                  id="resource-file"
+                  type="file"
+                  accept=".pdf,.docx,.txt,.zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/zip"
+                  onChange={(event) => setFile(event.target.files?.[0] || null)}
+                  required
+                  disabled={saving}
+                />
+                <p className="text-sm text-[var(--muted)] mt-1">
+                  PDF, DOCX, TXT, or ZIP. Maximum 25 MB. The bucket remains private.
+                </p>
+                {file && (
+                  <p className="text-sm text-[var(--ok)] mt-1">
+                    Selected: {file.name} ({Math.ceil(file.size / 1024)} KB)
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-3">
+              <div className="form-group">
+                <label htmlFor="resource-description">Description (optional)</label>
+                <input
+                  id="resource-description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={2_000}
+                  disabled={saving}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="resource-position">Order</label>
+                <input
+                  id="resource-position"
+                  type="number"
+                  min={0}
+                  value={position}
+                  onChange={(event) => setPosition(Number(event.target.value))}
+                  disabled={saving}
+                />
+              </div>
             </div>
-          )}
-
-          <div className="grid sm:grid-cols-[1fr_120px] gap-3"><div className="form-group"><label>Description (optional)</label><input value={description} onChange={e=>setDescription(e.target.value)}/></div><div className="form-group"><label>Order</label><input type="number" min={0} value={position} onChange={e=>setPosition(Number(e.target.value))}/></div></div>
-          <button type="submit" className="btn small" disabled={loading}>
-            {loading ? "Adding…" : "Add Resource"}
-          </button>
-        </form>
+            <button type="submit" className="btn" disabled={saving}>
+              {saving ? "Saving…" : "Add resource"}
+            </button>
+          </form>
+        )}
       </div>
 
+      {editing && (
+        <div className="card mb-6" id="edit-resource">
+          <div className="flex justify-between gap-3 items-start mb-3">
+            <div>
+              <h2 className="text-lg font-semibold">Edit resource</h2>
+              <p className="text-sm text-[var(--muted)]">
+                Change its lesson assignment, title, description, order, or text/link value.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn small secondary"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+          <form onSubmit={saveEdit}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="form-group">
+                <label htmlFor="edit-lesson">Lesson</label>
+                <select id="edit-lesson" name="edit-lesson" defaultValue={editing.lessonId} required>
+                  {lessons.map((lesson) => (
+                    <option key={lesson.id} value={lesson.id}>
+                      {lesson.moduleTitle} — {lesson.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="edit-position">Order</label>
+                <input id="edit-position" name="edit-position" type="number" min={0} defaultValue={editing.position} required />
+              </div>
+            </div>
+            <div className="form-group">
+              <label htmlFor="edit-title">Title</label>
+              <input id="edit-title" name="edit-title" defaultValue={editing.title} maxLength={240} required />
+            </div>
+            {editing.type === "link" && (
+              <div className="form-group">
+                <label htmlFor="edit-url">URL</label>
+                <input id="edit-url" name="edit-url" type="url" defaultValue={editing.url || ""} required />
+              </div>
+            )}
+            {editing.type === "text" && (
+              <div className="form-group">
+                <label htmlFor="edit-content">Content</label>
+                <textarea id="edit-content" name="edit-content" defaultValue={editing.content || ""} rows={5} required />
+              </div>
+            )}
+            <div className="form-group">
+              <label htmlFor="edit-description">Description</label>
+              <input id="edit-description" name="edit-description" defaultValue={editing.description || ""} maxLength={2_000} />
+            </div>
+            <button className="btn" disabled={saving}>
+              {saving ? "Saving…" : "Save resource"}
+            </button>
+          </form>
+        </div>
+      )}
+
       <div className="card">
-        <h3 className="text-lg font-semibold mb-3">All Resources</h3>
+        <h2 className="text-lg font-semibold mb-3">All resources</h2>
         {resources.length === 0 ? (
           <p className="text-[var(--muted)]">No resources added yet.</p>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-4">
             {lessons.map((lesson) => {
               const lessonResources = byLesson.get(lesson.id);
-              if (!lessonResources || lessonResources.length === 0) return null;
+              if (!lessonResources?.length) return null;
               return (
-                <div key={lesson.id}>
-                  <h4 className="text-sm font-bold text-[var(--muted)] mb-2">
+                <section key={lesson.id}>
+                  <h3 className="text-sm font-bold text-[var(--muted)] mb-2">
                     {lesson.moduleTitle} — {lesson.title}
-                  </h4>
-                  {lessonResources.map((r) => (
+                  </h3>
+                  {lessonResources.map((resource) => (
                     <div
-                      key={r.id}
-                      className="flex items-center justify-between p-3 border border-[var(--line)] rounded-lg mb-2"
+                      key={resource.id}
+                      className="flex items-center justify-between gap-3 p-3 border border-[var(--line)] rounded-lg mb-2 flex-wrap"
                     >
-                      <div>
-                        <span className="badge text-xs mr-2">{r.type}</span>
-                        <span className="font-semibold">{r.title}</span>
-                        {r.url && (
-                          <span className="text-sm text-[var(--muted)] ml-2">
-                            {r.url}
-                          </span>
+                      <div className="min-w-0">
+                        <span className="badge text-xs mr-2">{resource.type}</span>
+                        <span className="font-semibold">{resource.title}</span>
+                        {resource.type === "document" && (
+                          <p className="text-xs text-[var(--muted)] mt-1">
+                            Private document stored in Supabase Storage
+                          </p>
+                        )}
+                        {resource.url && (
+                          <p className="text-sm text-[var(--muted)] truncate mt-1">
+                            {resource.url}
+                          </p>
                         )}
                       </div>
-                      <div className="flex gap-2"><button className="btn small secondary" onClick={()=>handleEdit(r)}>Edit</button><button
-                        className="btn small danger"
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        Delete
-                      </button></div>
+                      <div className="flex gap-2">
+                        {resource.type === "document" && (
+                          <a
+                            className="btn small secondary no-underline"
+                            href={`/api/resources/${resource.id}/download`}
+                          >
+                            Download
+                          </a>
+                        )}
+                        <button
+                          className="btn small secondary"
+                          onClick={() => {
+                            setEditing(resource);
+                            window.setTimeout(() => document.getElementById("edit-resource")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="btn small danger"
+                          onClick={() => handleDelete(resource.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
-                </div>
+                </section>
               );
             })}
           </div>

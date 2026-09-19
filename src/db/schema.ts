@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   timestamp,
+  doublePrecision,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
@@ -109,9 +110,24 @@ export const lessonProgress = pgTable(
     status: text("status").notNull().default("in_progress"), // 'in_progress' | 'completed'
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    playbackPositionSeconds: doublePrecision("playback_position_seconds")
+      .notNull()
+      .default(0),
+    furthestPositionSeconds: doublePrecision("furthest_position_seconds")
+      .notNull()
+      .default(0),
+    durationSeconds: doublePrecision("duration_seconds"),
+    watchedSeconds: doublePrecision("watched_seconds").notNull().default(0),
+    percentComplete: doublePrecision("percent_complete").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    lastWatchedAt: timestamp("last_watched_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("lesson_progress_user_lesson_idx").on(t.userId, t.lessonId),
+    index("lesson_progress_user_last_watched_idx").on(
+      t.userId,
+      t.lastWatchedAt
+    ),
   ]
 );
 
