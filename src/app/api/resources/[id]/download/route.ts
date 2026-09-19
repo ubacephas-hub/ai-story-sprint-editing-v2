@@ -3,8 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { courseAccess, lessons, modules, resources } from "@/db/schema";
 import { getSession } from "@/lib/auth";
-import { isSafeStoragePath } from "@/lib/document-types";
-import { getDocumentBucketName, getDocumentStorageAdmin } from "@/lib/supabase-storage";
+import { canDownloadDocument } from "@/lib/document-access";
+import {
+  getDocumentBucketName,
+  getDocumentStorageAdmin,
+  logSupabaseStorageError,
+  normalizeDocumentObjectPath,
+} from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,33 +21,6 @@ interface Props {
 function positiveInteger(value: string): number | null {
   const number = Number(value);
   return Number.isSafeInteger(number) && number > 0 ? number : null;
-}
-
-function storedObjectPath(value: string | null): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (isSafeStoragePath(trimmed)) return trimmed;
-
-  // Keep older metadata readable when it contains a Supabase Storage object
-  // URL, but never redirect to an arbitrary external URL.
-  try {
-    const url = new URL(trimmed);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const objectIndex = parts.indexOf("object");
-    const bucket = getDocumentBucketName();
-    if (
-      objectIndex >= 0 &&
-      parts[objectIndex + 1] &&
-      ["public", "authenticated", "sign"].includes(parts[objectIndex + 1]) &&
-      parts[objectIndex + 2] === bucket
-    ) {
-      const path = parts.slice(objectIndex + 3).map(decodeURIComponent).join("/");
-      return isSafeStoragePath(path) ? path : null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 export async function GET(_req: NextRequest, { params }: Props) {
@@ -75,44 +53,61 @@ export async function GET(_req: NextRequest, { params }: Props) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
+    let courseAccessStatus: string | null = null;
     if (session.user.role !== "admin") {
       const [access] = await db
-        .select({ id: courseAccess.id })
+        .select({ status: courseAccess.status })
         .from(courseAccess)
         .where(
           and(
             eq(courseAccess.userId, session.user.id),
-            eq(courseAccess.courseId, resource.courseId),
-            eq(courseAccess.status, "active")
+            eq(courseAccess.courseId, resource.courseId)
           )
         )
         .limit(1);
-      if (!access) {
-        return NextResponse.json(
-          { error: "Active course access is required" },
-          { status: 403 }
-        );
-      }
+      courseAccessStatus = access?.status || null;
     }
 
-    const objectPath = storedObjectPath(resource.filePath);
+    if (
+      !canDownloadDocument({
+        role: session.user.role,
+        accountStatus: session.user.accountStatus,
+        courseAccessStatus,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Active course access is required" },
+        { status: 403 }
+      );
+    }
+
+    const objectPath = normalizeDocumentObjectPath(
+      resource.filePath,
+      getDocumentBucketName()
+    );
     if (!objectPath) {
-      return NextResponse.json({ error: "Document is unavailable" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Document metadata is unavailable" },
+        { status: 404 }
+      );
     }
 
     const { data, error } = await getDocumentStorageAdmin()
       .from(getDocumentBucketName())
       .createSignedUrl(objectPath, 5 * 60, { download: true });
     if (error || !data) {
-      console.error("Document signed download URL creation failed");
-      return NextResponse.json({ error: "Document is unavailable" }, { status: 404 });
+      logSupabaseStorageError("Document signed download URL creation failed", error);
+      return NextResponse.json(
+        { error: "Document download is temporarily unavailable. Please try again." },
+        { status: 502 }
+      );
     }
 
     const response = NextResponse.redirect(data.signedUrl, 302);
     response.headers.set("Cache-Control", "private, no-store");
     return response;
-  } catch {
-    console.error("Document download failed");
+  } catch (error) {
+    logSupabaseStorageError("Document download failed", error);
     return NextResponse.json({ error: "Document download failed" }, { status: 500 });
   }
 }

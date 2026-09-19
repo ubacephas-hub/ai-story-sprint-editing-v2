@@ -11,7 +11,7 @@ import {
   formatPlaybackTime,
   PLAYBACK_SAVE_INTERVAL_MS,
 } from "@/lib/progress";
-import { isYouTubeVideoId, parseYouTubeUrl } from "@/lib/youtube";
+import { getYouTubeEmbedUrl, isYouTubeVideoId, parseYouTubeUrl } from "@/lib/youtube";
 
 export interface PlaybackProgressData {
   status: string;
@@ -402,15 +402,19 @@ type YouTubePlayer = {
 };
 
 type YouTubeApi = {
-  Player: new (element: HTMLElement, options: {
-    host?: string;
-    videoId: string;
-    playerVars?: Record<string, number | string>;
-    events: {
-      onReady: (event: { target: YouTubePlayer }) => void;
-      onStateChange: (event: { data: number; target: YouTubePlayer }) => void;
-    };
-  }) => YouTubePlayer;
+  Player: new (
+    element: HTMLElement,
+    options: {
+      host?: string;
+      videoId: string;
+      playerVars?: Record<string, number | string>;
+      events: {
+        onReady: (event: { target: YouTubePlayer }) => void;
+        onStateChange: (event: { data: number; target: YouTubePlayer }) => void;
+        onError?: (event: { data: number; target: YouTubePlayer }) => void;
+      };
+    }
+  ) => YouTubePlayer;
   PlayerState: { PLAYING: number; PAUSED: number; ENDED: number };
 };
 
@@ -424,44 +428,110 @@ declare global {
 let youtubeApiPromise: Promise<YouTubeApi> | null = null;
 
 function loadYouTubeApi(): Promise<YouTubeApi> {
-  if (typeof window !== "undefined" && window.YT?.Player) {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("YouTube API is only available in a browser"));
+  }
+  if (window.YT?.Player) {
     return Promise.resolve(window.YT);
   }
   if (youtubeApiPromise) return youtubeApiPromise;
 
-  youtubeApiPromise = new Promise<YouTubeApi>((resolve, reject) => {
-    const finish = () => {
-      if (window.YT?.Player) resolve(window.YT);
-      else reject(new Error("YouTube API did not initialize"));
+  const promise = new Promise<YouTubeApi>((resolve, reject) => {
+    let settled = false;
+    let pollTimer: number | null = null;
+    let timeoutTimer: number | null = null;
+
+    const cleanup = () => {
+      if (pollTimer !== null) window.clearInterval(pollTimer);
+      if (timeoutTimer !== null) window.clearTimeout(timeoutTimer);
+      pollTimer = null;
+      timeoutTimer = null;
     };
-    const previous = window.onYouTubeIframeAPIReady;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      if (!error && window.YT?.Player) {
+        settled = true;
+        cleanup();
+        resolve(window.YT);
+        return;
+      }
+      if (error) {
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+    };
+    const checkForApi = () => {
+      if (window.YT?.Player) finish();
+    };
+
+    const previousReadyCallback = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = () => {
-      previous?.();
-      finish();
+      // Another integration may already have registered this callback. Do not
+      // let it prevent this player from resolving if it throws.
+      try {
+        previousReadyCallback?.();
+      } finally {
+        finish();
+      }
     };
 
-    const existing = document.getElementById("youtube-iframe-api");
-    if (existing) return;
+    const existingScript = document.getElementById("youtube-iframe-api");
+    if (existingScript) {
+      existingScript.addEventListener("load", checkForApi, { once: true });
+      checkForApi();
+    } else {
+      const script = document.createElement("script");
+      script.id = "youtube-iframe-api";
+      script.src = "https://www.youtube.com/iframe_api";
+      script.async = true;
+      script.addEventListener("load", checkForApi, { once: true });
+      script.addEventListener(
+        "error",
+        () => finish(new Error("YouTube API failed to load")),
+        { once: true }
+      );
+      document.head.appendChild(script);
+    }
 
-    const script = document.createElement("script");
-    script.id = "youtube-iframe-api";
-    script.src = "https://www.youtube.com/iframe_api";
-    script.async = true;
-    script.onerror = () => reject(new Error("YouTube API failed to load"));
-    document.head.appendChild(script);
+    // A script can have been added by a different component before this
+    // promise was created. Polling covers that case without adding a second
+    // script or leaving a blank player forever.
+    pollTimer = window.setInterval(checkForApi, 100);
+    timeoutTimer = window.setTimeout(
+      () => finish(new Error("YouTube API did not initialize")),
+      15_000
+    );
   });
 
+  // A failed load should not poison a later mount/retry. React Strict Mode
+  // mounts and cleans effects twice in development, so the shared promise is
+  // intentionally reset only after a rejection.
+  youtubeApiPromise = promise.catch((error: unknown) => {
+    youtubeApiPromise = null;
+    throw error;
+  });
   return youtubeApiPromise;
+}
+
+export function getYouTubeFallbackUrl(videoId: string): string {
+  const query = new URLSearchParams({
+    autoplay: "0",
+    enablejsapi: "1",
+    modestbranding: "1",
+    playsinline: "1",
+    rel: "0",
+  });
+  return `${getYouTubeEmbedUrl(videoId)}?${query.toString()}`;
 }
 
 function YouTubeVideoPlayer({
   lessonId,
-  videoSource,
   lessonTitle,
   initialProgress,
   videoId,
 }: Omit<VideoPlayerProps, "videoKind"> & { videoId: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const youtubeTargetRef = useRef<HTMLDivElement>(null);
   const initial = normalizeProgress(initialProgress);
   const initialProgressRef = useRef(initial);
   const playback = usePlaybackState(lessonId, initialProgress);
@@ -477,9 +547,18 @@ function YouTubeVideoPlayer({
   const playerRef = useRef<YouTubePlayer | null>(null);
   const timerRef = useRef<number | null>(null);
   const lastSamplePositionRef = useRef(0);
+  const [youtubeStatus, setYouTubeStatus] = useState<"loading" | "ready" | "fallback">("loading");
 
   useEffect(() => {
     let cancelled = false;
+    let constructedPlayer: YouTubePlayer | null = null;
+    let playerReady = false;
+    let playerFailed = false;
+    let readyTimer: number | null = null;
+    const clearReadyTimer = () => {
+      if (readyTimer !== null) window.clearTimeout(readyTimer);
+      readyTimer = null;
+    };
     const stopTimer = () => {
       if (timerRef.current !== null) {
         window.clearInterval(timerRef.current);
@@ -487,13 +566,16 @@ function YouTubeVideoPlayer({
       }
     };
     const sync = (player: YouTubePlayer) => {
-      const duration = player.getDuration() || null;
-      const position = player.getCurrentTime() || 0;
+      const rawDuration = player.getDuration();
+      const rawPosition = player.getCurrentTime();
+      const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : null;
+      const position = Number.isFinite(rawPosition) && rawPosition > 0 ? rawPosition : 0;
       updatePosition(position, duration);
       return { duration, position };
     };
     const sample = (player: YouTubePlayer) => {
-      const { duration, position } = sync(player);
+      if (cancelled) return;
+      const { position } = sync(player);
       const previous = lastSamplePositionRef.current;
       const jumped =
         playingRef.current &&
@@ -501,11 +583,12 @@ function YouTubeVideoPlayer({
         Math.abs(position - previous) > 3;
       lastSamplePositionRef.current = position;
       if (jumped) {
+        // Seeking can change the player position, but never adds to genuine
+        // watched time. The server also ignores this event for watched time.
         saveSnapshot("seeked", false, true);
       } else if (playingRef.current) {
         saveSnapshot("progress", true);
       }
-      return { duration, position };
     };
     const startTimer = (player: YouTubePlayer) => {
       stopTimer();
@@ -514,56 +597,98 @@ function YouTubeVideoPlayer({
 
     loadYouTubeApi()
       .then((api) => {
-        if (cancelled || !containerRef.current) return;
-        playerRef.current = new api.Player(containerRef.current, {
-          host: "https://www.youtube-nocookie.com",
-          videoId,
-          playerVars: {
-            controls: 1,
-            enablejsapi: 1,
-            modestbranding: 1,
-            origin: window.location.origin,
-            playsinline: 1,
-            rel: 0,
-          },
-          events: {
-            onReady: ({ target }) => {
-              const { position } = sync(target);
-              if (
-                initialProgressRef.current.status !== "completed" &&
-                initialProgressRef.current.playbackPositionSeconds > 3 &&
-                initialProgressRef.current.playbackPositionSeconds < (target.getDuration() || Infinity) - 3
-              ) {
-                target.seekTo(initialProgressRef.current.playbackPositionSeconds, true);
-                sync(target);
-              }
-              lastSamplePositionRef.current = position;
+        if (cancelled || !youtubeTargetRef.current) return;
+        try {
+          const player = new api.Player(youtubeTargetRef.current, {
+            host: "https://www.youtube-nocookie.com",
+            videoId,
+            playerVars: {
+              autoplay: 0,
+              controls: 1,
+              enablejsapi: 1,
+              modestbranding: 1,
+              origin: window.location.origin,
+              playsinline: 1,
+              rel: 0,
             },
-            onStateChange: ({ data, target }) => {
-              if (data === api.PlayerState.PLAYING) {
-                playingRef.current = true;
-                saveSnapshot("play", true, true);
-                startTimer(target);
-              } else if (data === api.PlayerState.PAUSED) {
-                const wasPlaying = playingRef.current;
-                playingRef.current = false;
-                sync(target);
-                saveSnapshot("pause", wasPlaying, true);
-                stopTimer();
-              } else if (data === api.PlayerState.ENDED) {
-                const wasPlaying = playingRef.current;
-                playingRef.current = false;
-                sync(target);
-                saveSnapshot("ended", wasPlaying, true);
-                stopTimer();
-              }
+            events: {
+              onReady: ({ target }) => {
+                if (cancelled) return;
+                clearReadyTimer();
+                playerReady = true;
+                constructedPlayer = target;
+                playerRef.current = target;
+                let { position } = sync(target);
+                const resumePosition = initialProgressRef.current.playbackPositionSeconds;
+                const duration = target.getDuration() || 0;
+                if (
+                  initialProgressRef.current.status !== "completed" &&
+                  resumePosition > 3 &&
+                  resumePosition < duration - 3
+                ) {
+                  target.seekTo(resumePosition, true);
+                  ({ position } = sync(target));
+                }
+                lastSamplePositionRef.current = position;
+                setYouTubeStatus("ready");
+              },
+              onStateChange: ({ data, target }) => {
+                if (cancelled) return;
+                if (data === api.PlayerState.PLAYING) {
+                  playingRef.current = true;
+                  saveSnapshot("play", true, true);
+                  startTimer(target);
+                } else if (data === api.PlayerState.PAUSED) {
+                  const wasPlaying = playingRef.current;
+                  playingRef.current = false;
+                  sync(target);
+                  saveSnapshot("pause", wasPlaying, true);
+                  stopTimer();
+                } else if (data === api.PlayerState.ENDED) {
+                  const wasPlaying = playingRef.current;
+                  playingRef.current = false;
+                  sync(target);
+                  saveSnapshot("ended", wasPlaying, true);
+                  stopTimer();
+                }
+              },
+              onError: ({ target }) => {
+                playerFailed = true;
+                if (!cancelled) {
+                  clearReadyTimer();
+                  stopTimer();
+                  playerRef.current = null;
+                  try {
+                    target.destroy();
+                  } catch {
+                    // The fallback remains usable even if YouTube already
+                    // removed the failed iframe.
+                  }
+                  setYouTubeStatus("fallback");
+                }
+              },
             },
-          },
-        });
+          });
+          constructedPlayer = player;
+          playerRef.current = player;
+          if (!playerReady && !playerFailed) {
+            readyTimer = window.setTimeout(() => {
+              if (cancelled) return;
+              playerRef.current = null;
+              try {
+                player.destroy();
+              } catch {
+                // Fall back below if the API created a non-functional player.
+              }
+              setYouTubeStatus("fallback");
+            }, 15_000);
+          }
+        } catch {
+          if (!cancelled) setYouTubeStatus("fallback");
+        }
       })
       .catch(() => {
-        // The panel remains usable and the user can retry by reloading. No
-        // arbitrary iframe source is rendered when the official API fails.
+        if (!cancelled) setYouTubeStatus("fallback");
       });
 
     const onVisibilityChange = () => {
@@ -579,10 +704,17 @@ function YouTubeVideoPlayer({
 
     return () => {
       cancelled = true;
+      clearReadyTimer();
       stopTimer();
       saveSnapshot("unmount", playingRef.current, true, true);
-      playerRef.current?.destroy();
+      const player = playerRef.current || constructedPlayer;
       playerRef.current = null;
+      try {
+        player?.destroy();
+      } catch {
+        // YouTube can already have removed the iframe during Strict Mode
+        // cleanup. Cleanup remains best-effort and must not break navigation.
+      }
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     };
@@ -590,7 +722,32 @@ function YouTubeVideoPlayer({
 
   return (
     <>
-      <div className="video-container" ref={containerRef} aria-label={`${lessonTitle} video`} />
+      <div className="video-container" aria-label={`${lessonTitle} video`}>
+        {youtubeStatus === "fallback" ? (
+          <iframe
+            className="youtube-fallback-frame"
+            src={getYouTubeFallbackUrl(videoId)}
+            title={`${lessonTitle} video`}
+            width="100%"
+            height="100%"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
+          />
+        ) : (
+          <div ref={youtubeTargetRef} className="youtube-player-target" />
+        )}
+        {youtubeStatus === "loading" && (
+          <div className="video-status" role="status" aria-live="polite">
+            Loading video…
+          </div>
+        )}
+        {youtubeStatus === "fallback" && (
+          <div className="video-status video-status-warning" role="status" aria-live="polite">
+            Video playback is available. Detailed progress tracking is temporarily unavailable.
+          </div>
+        )}
+      </div>
       <PlaybackPanel
         progress={progress}
         positionSeconds={positionSeconds}

@@ -12,6 +12,8 @@ import {
 import {
   getDocumentBucketName,
   getDocumentStorageAdmin,
+  logSupabaseStorageError,
+  normalizeDocumentObjectPath,
 } from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
@@ -82,24 +84,39 @@ export async function POST(req: NextRequest) {
       .from(getDocumentBucketName())
       .createSignedUploadUrl(objectPath, { upsert: false });
     if (error || !data) {
-      console.error("Document upload URL creation failed");
+      logSupabaseStorageError("Document upload URL creation failed", error);
       return NextResponse.json(
         { error: "Secure document uploads are not configured yet." },
         { status: 503 }
       );
     }
 
+    // Supabase returns the path relative to the bucket. Keep that canonical
+    // object path alongside the upload token; never store the signed URL or a
+    // bucket-prefixed fullPath in resources.file_path.
+    const storagePath = normalizeDocumentObjectPath(data.path, getDocumentBucketName());
+    if (!storagePath || storagePath !== objectPath) {
+      logSupabaseStorageError(
+        "Document upload URL returned an unexpected object path",
+        new Error("Supabase returned an unexpected document path")
+      );
+      return NextResponse.json(
+        { error: "Secure document uploads are unavailable. Please try again." },
+        { status: 502 }
+      );
+    }
+
     // The signed URL/token is intentionally short-lived and single-use. The
     // document bytes go from the browser directly to Supabase Storage.
     return NextResponse.json({
-      path: data.path,
+      path: storagePath,
       token: data.token,
       signedUrl: data.signedUrl,
       bucket: getDocumentBucketName(),
       expiresIn: 2 * 60 * 60,
     });
-  } catch {
-    console.error("Document upload URL request failed");
+  } catch (error) {
+    logSupabaseStorageError("Document upload URL request failed", error);
     return NextResponse.json(
       { error: "Secure document uploads are unavailable. Please try again." },
       { status: 503 }

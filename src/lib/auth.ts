@@ -74,7 +74,7 @@ export async function getSession(): Promise<{
   if (result.length === 0) return null;
 
   const row = result[0];
-  if (row.userAccountStatus === "disabled") return null;
+  if (row.userAccountStatus === "disabled" || row.userAccountStatus === "removed") return null;
 
   return {
     user: {
