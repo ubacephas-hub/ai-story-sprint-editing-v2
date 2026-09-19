@@ -117,7 +117,24 @@ export default async function LessonPage({ params }: LessonPageProps) {
       <div className="flex items-center gap-2 text-sm text-[var(--muted)] mb-5"><Link href="/dashboard">Dashboard</Link><span>›</span><span>{mod.title}</span><span>›</span><span>Lesson {lessonNum} of {allLessons.length}</span></div>
       <div className="lesson-grid">
         <section>
-          <VideoPlayer videoKind={lesson.videoKind} videoSource={lesson.videoSource} lessonTitle={lesson.title}/>
+          <VideoPlayer
+            lessonId={lessonId}
+            videoKind={lesson.videoKind}
+            videoSource={lesson.videoSource}
+            lessonTitle={lesson.title}
+            initialProgress={
+              progress
+                ? {
+                    status: progress.status,
+                    playbackPositionSeconds: progress.playbackPositionSeconds,
+                    furthestPositionSeconds: progress.furthestPositionSeconds,
+                    durationSeconds: progress.durationSeconds,
+                    watchedSeconds: progress.watchedSeconds,
+                    percentComplete: progress.percentComplete,
+                  }
+                : null
+            }
+          />
           <div className="soft-card mt-4"><div className="flex justify-between items-start gap-4 flex-wrap"><div><p className="page-eyebrow">Module {allModules.findIndex(m=>m.id===mod.id)+1} · {mod.title}</p><h1 className="text-2xl font-bold mt-1">Lesson {lessonNum} — {lesson.title}</h1></div>{progress?.status==="completed"?<span className="badge completed">Completed</span>:progress?.status==="in_progress"?<span className="badge in-progress">In progress</span>:<span className="badge">Not started</span>}</div>{lesson.description&&<p className="text-[var(--muted)] mt-4">{lesson.description}</p>}</div>
         </section>
         <aside className="soft-card h-fit"><p className="page-eyebrow">Lesson overview</p><h2 className="text-xl font-bold mt-1 mb-3">{lesson.title}</h2><p className="text-sm text-[var(--muted)]">Work through the video and supporting resources, then mark the lesson complete when you’re ready.</p><div className="mt-6"><ProgressButtons lessonId={lessonId} currentStatus={progress?.status||null}/></div></aside>

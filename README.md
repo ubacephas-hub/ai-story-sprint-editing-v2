@@ -84,11 +84,17 @@ Do not run setup, seed, migrations, or destructive storage/database operations a
 - Document bytes go directly from the browser to the private Supabase bucket using a one-time signed upload URL. The Vercel API receives metadata only.
 - Students must have an authenticated session and Active access to the document's course before the server redirects them to a five-minute signed download URL. Pending, suspended, removed, disabled, and unauthenticated users are denied.
 
-## Database migration and rollback
+## Playback progress migration, rollback, and delivery notes
 
-No database migration is required for this change: the existing additive `resources.file_path` column already stores the private object path, and all existing tables, IDs, relationships, progress rows, video URLs, links, and text resources remain intact.
+Playback persistence is additive and is not applied automatically by a Production deploy. The migration in `migrations/003_lesson_playback_progress.sql` uses `ADD COLUMN IF NOT EXISTS`, preserves every existing `lesson_progress.id` and row, adds the latest-watch index, and normalizes legacy `status='completed'` rows to `percent_complete=100`. It does not invent watched time or a duration for old rows. The protected fresh/staging setup path contains the same columns, index, and completed-row backfill.
 
-To roll back the application code, revert the pull request or deploy the previous Preview build. Do **not** drop existing tables or reset the database. If staging-only test documents must be removed after rollback, delete only the corresponding objects under `documents/` in the private staging bucket after confirming their resource records are no longer needed. Production data and the Production bucket must not be touched.
+Apply the migration only to the **staging** Supabase database after taking the normal staging backup/snapshot and checking the migration SQL. Verify that row counts, IDs, completed statuses, and access records are unchanged. Do not run it against Production as part of this work.
+
+Playback saves are same-origin authenticated requests. The server resolves the lesson's module/course, requires the Student role and Active access, validates bounded finite values, derives watched time and percentage server-side, ignores seek jumps for watched time, and keeps completed rows completed. Direct MP4/HLS playback sends throttled progress about every 12 seconds and flushes on pause, ended, visibility change, pagehide, and unmount. YouTube uses the official IFrame API with the `youtube-nocookie.com` host and the same tracking contract. Automatic completion requires 90% genuine watched time or a sufficiently watched ended event; Mark Complete remains available.
+
+To roll back application code, revert the pull request or deploy the previous Preview build. Do **not** drop/recreate `lesson_progress`, remove its new columns, reset the database, or delete historical progress. The additive columns are intentionally harmless to an older application; if a later cleanup is ever required, schedule it as a separately reviewed staging-first migration after confirming no deployed code reads the fields. Production data, storage, and database must not be touched. If staging-only test documents must be removed, delete only the corresponding private staging objects after confirming their resource records are no longer needed.
+
+See [`docs/playback-progress-delivery.md`](docs/playback-progress-delivery.md) for the staging runbook, manual test matrix, monitoring points, and delivery/rollback sign-off notes.
 
 ## Validation commands
 
@@ -96,24 +102,30 @@ To roll back the application code, revert the pull request or deploy the previou
 npm ci
 npm run typecheck
 npm run lint
+npm test
 npm run build
 npm audit --omit=dev
 ```
 
 ## Manual staging checklist
 
-- [ ] Existing administrator login still works.
-- [ ] Existing student login still works.
-- [ ] Existing progress remains visible and existing videos still play.
-- [ ] Existing links and text resources remain accessible.
-- [ ] Create an empty test module, rename it, and reorder it.
-- [ ] Confirm a module containing lessons cannot be hard-deleted.
+- [ ] Existing administrator and student logins still work.
+- [ ] Existing progress, completed lessons, course access, videos, links, text resources, and private documents remain available.
+- [ ] Apply `003_lesson_playback_progress.sql` to staging only; run it twice and confirm the second run is a no-op.
+- [ ] Confirm lesson-progress row count, IDs, `status`, `completed_at`, users, enrollments, and video/resource metadata are unchanged; legacy completed rows display as 100%.
+- [ ] Create an empty test module, rename it, and reorder it; confirm modules containing lessons cannot be hard-deleted.
 - [ ] Add three test lessons and verify they appear immediately in Admin → Lessons.
-- [ ] Move one test lesson to another module; edit title, description, order, and video source.
-- [ ] Upload a test PDF from Admin → Resources and observe secure URL, direct upload, and success/error states.
-- [ ] Confirm the bucket remains private and the database stores only an object path.
-- [ ] Confirm an Active student can download the PDF.
-- [ ] Confirm Pending, Suspended, removed/disabled, and unauthenticated users cannot download it.
-- [ ] Confirm link and text resources continue to work on the central Resources page and lesson page.
-- [ ] Test administrator flows on mobile and desktop widths.
-- [ ] Confirm no Production deployment, Production setup, Production seed, or Production database reset was performed.
+- [ ] Test a direct MP4 lesson: metadata, play, pause, seek, resume, ended, refresh, route change, page hide/show, and another browser/device.
+- [ ] Test an HLS `.m3u8` source in a browser that supports it and confirm unsupported browsers fail gracefully.
+- [ ] Test a YouTube lesson: approved URL/ID only, `youtube-nocookie.com`, resume on ready, play/pause/seek/ended, and no raw arbitrary iframe URL.
+- [ ] While watching, verify saves are throttled to approximately 10–15 seconds rather than every `timeupdate`; observe subtle saved/error state and retry after a temporary network failure.
+- [ ] Verify a seek does not add watched time, jump to 90% does not complete, genuine 90% watched completes once, ended completion works when sufficiently watched, and delayed saves do not undo completion.
+- [ ] Verify Mark Complete remains an idempotent fallback and shows 100% with a completion timestamp.
+- [ ] Verify resume position, watched percentage, position/duration, and saved state persist after refresh, sign-out/sign-in, and another browser/device.
+- [ ] Verify Dashboard Continue Learning selects the latest incomplete `last_watched_at`, falls back to first incomplete, preserves completed-course review, and calculates partial totals (for example 100% + 50% + six 0% lessons = 18.75%).
+- [ ] Verify Admin → Students shows aggregate percentage, completed count, recent lesson, last-watched time, and visibility-aware 20-second polling without full-page flicker or polling while hidden.
+- [ ] Verify an administrator's Student Progress view shows every lesson's percentage, position/duration, status, and last-watched time; manually refresh it.
+- [ ] Suspend or remove a student and confirm playback writes are rejected while historical progress remains visible to administrators.
+- [ ] Confirm Active, Pending, Suspended, removed/disabled, and unauthenticated users cannot access private documents without authorization.
+- [ ] Test administrator and student flows on mobile and desktop widths.
+- [ ] Confirm no Production deployment, Production setup, Production seed, Production migration, or Production database reset was performed.

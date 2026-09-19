@@ -3,8 +3,9 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
-import { users, courseAccess, courses, lessonProgress, lessons } from "@/db/schema";
-import { eq, and, sql, asc } from "drizzle-orm";
+import { courseAccess, courses, lessons, modules, users } from "@/db/schema";
+import { asc, eq, sql } from "drizzle-orm";
+import { getAdminProgressSnapshots } from "@/lib/admin-progress";
 import StudentActions from "./StudentActions";
 
 export const dynamic = "force-dynamic";
@@ -14,85 +15,74 @@ export default async function AdminStudentsPage() {
   if (!session) redirect("/login");
   if (session.user.role !== "admin") redirect("/dashboard");
 
-  const user = session.user;
-
-  // Get all students with their access status
   const students = await db
     .select()
     .from(users)
     .where(eq(users.role, "student"))
     .orderBy(asc(users.name));
 
-  const course = await db.select().from(courses).limit(1);
-  const courseId = course.length > 0 ? course[0].id : null;
-
-  // Get access and progress for each student
-  const studentsWithInfo = [];
-  for (const student of students) {
-    let accessStatus = "none";
-    let accessId: number | null = null;
-
-    if (courseId) {
-      const access = await db
-        .select()
+  const [course] = await db.select().from(courses).limit(1);
+  const courseId = course?.id ?? null;
+  const accessRows = courseId
+    ? await db
+        .select({ userId: courseAccess.userId, status: courseAccess.status, accessId: courseAccess.id })
         .from(courseAccess)
-        .where(
-          and(
-            eq(courseAccess.userId, student.id),
-            eq(courseAccess.courseId, courseId)
-          )
-        )
-        .limit(1);
-      if (access.length > 0) {
-        accessStatus = access[0].status;
-        accessId = access[0].id;
-      }
-    }
+        .where(eq(courseAccess.courseId, courseId))
+    : [];
+  const accessByUser = new Map(accessRows.map((row) => [row.userId, row]));
 
-    // Count completed lessons
-    const completed = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(lessonProgress)
-      .where(
-        and(
-          eq(lessonProgress.userId, student.id),
-          eq(lessonProgress.status, "completed")
-        )
-      );
+  const snapshots = await getAdminProgressSnapshots();
+  const snapshotByUser = new Map(snapshots.map((snapshot) => [snapshot.studentId, snapshot]));
+  const [lessonCount] = courseId
+    ? await db
+        .select({ count: sql<number>`count(*)` })
+        .from(lessons)
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
+        .where(eq(modules.courseId, courseId))
+    : [{ count: 0 }];
 
-    studentsWithInfo.push({
-      ...student,
-      accessStatus,
-      accessId,
-      completedLessons: Number(completed[0].count),
-    });
-  }
-
-  const totalLessons = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(lessons);
+  const studentsWithInfo = students.map((student) => {
+    const access = accessByUser.get(student.id);
+    const snapshot = snapshotByUser.get(student.id);
+    return {
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      accountStatus: student.accountStatus,
+      accessStatus: access?.status || "none",
+      accessId: access?.accessId || null,
+      completedLessons: snapshot?.completedLessons || 0,
+      overallPercent: snapshot?.overallPercent || 0,
+      mostRecentLessonTitle: snapshot?.mostRecentLesson?.title || null,
+      lastWatchedAt: snapshot?.lastWatchedAt || null,
+    };
+  });
 
   return (
     <>
-      <Navbar user={user} />
-      <main className="w-[min(1080px,calc(100%-32px))] mx-auto py-8">
-        <div className="mb-4">
-          <Link
-            href="/admin"
-            className="text-sm text-[var(--muted)] hover:text-[var(--brand)] no-underline"
-          >
-            ← Back to Dashboard
-          </Link>
+      <Navbar user={session.user} />
+      <main>
+        <div className="app-page">
+          <div className="mb-4">
+            <Link
+              href="/admin"
+              className="text-sm text-[var(--muted)] hover:text-[var(--brand)] no-underline"
+            >
+              ← Back to Dashboard
+            </Link>
+          </div>
+          <p className="page-eyebrow">Student management</p>
+          <h1 className="text-3xl font-bold mt-1 mb-2">Students</h1>
+          <p className="text-[var(--muted)] mb-6">
+            Progress summaries refresh automatically while this page is visible.
+          </p>
+
+          <StudentActions
+            courseId={courseId}
+            students={studentsWithInfo}
+            totalLessons={Number(lessonCount?.count || 0)}
+          />
         </div>
-
-        <h1 className="text-2xl font-semibold mb-6">Students</h1>
-
-        {/* Add student form */}
-        <StudentActions
-          courseId={courseId}
-          students={studentsWithInfo}
-          totalLessons={Number(totalLessons[0].count)}
-        />
       </main>
     </>
   );
