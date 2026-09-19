@@ -93,7 +93,7 @@ export default function ResourceActions({ lessons, resources }: Props) {
   async function uploadDirectly(
     selectedFile: File,
     upload: UploadResponse
-  ): Promise<void> {
+  ): Promise<string> {
     if (!SUPABASE_URL) {
       throw new Error("Document uploads are not configured for this preview.");
     }
@@ -107,14 +107,18 @@ export default function ResourceActions({ lessons, resources }: Props) {
     const storage = new StorageClient(
       `${SUPABASE_URL.replace(/\/$/, "")}/storage/v1`
     );
-    const { error: uploadError } = await storage
+    const { data: uploaded, error: uploadError } = await storage
       .from(upload.bucket || DOCUMENT_BUCKET)
       .uploadToSignedUrl(upload.path, upload.token, selectedFile, {
         contentType,
       });
-    if (uploadError) {
+    if (uploadError || !uploaded?.path) {
       throw new Error("Supabase could not store the document.");
     }
+    if (uploaded.path !== upload.path) {
+      throw new Error("Supabase returned an unexpected document path.");
+    }
+    return uploaded.path;
   }
 
   async function handleAdd(event: React.FormEvent<HTMLFormElement>) {
@@ -139,8 +143,7 @@ export default function ResourceActions({ lessons, resources }: Props) {
         setStatus("Requesting a secure upload URL…");
         const upload = await requestUploadUrl(file);
         setStatus("Uploading directly to private storage…");
-        await uploadDirectly(file, upload);
-        filePath = upload.path;
+        filePath = await uploadDirectly(file, upload);
       }
 
       setStatus("Saving resource details…");

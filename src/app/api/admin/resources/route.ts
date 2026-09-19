@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { lessons, modules, resources } from "@/db/schema";
 import { getSession } from "@/lib/auth";
-import { getDocumentBucketName, getDocumentStorageAdmin } from "@/lib/supabase-storage";
+import {
+  getDocumentBucketName,
+  getDocumentStorageAdmin,
+  logSupabaseStorageError,
+  normalizeDocumentObjectPath,
+} from "@/lib/supabase-storage";
 import { getDocumentExtension, isSafeStoragePath } from "@/lib/document-types";
 
 const RESOURCE_TYPES = ["link", "text", "document"] as const;
@@ -83,10 +88,12 @@ async function findResource(id: number) {
 }
 
 function validateDocumentPath(filePath: unknown, adminId: number): string | null {
-  if (typeof filePath !== "string" || !isSafeStoragePath(filePath)) return null;
-  if (!filePath.startsWith(`documents/${adminId}/`)) return null;
-  if (!getDocumentExtension(filePath, null)) return null;
-  return filePath;
+  if (typeof filePath !== "string") return null;
+  const objectPath = normalizeDocumentObjectPath(filePath, getDocumentBucketName());
+  if (!objectPath || !isSafeStoragePath(objectPath)) return null;
+  if (!objectPath.startsWith(`documents/${adminId}/`)) return null;
+  if (!getDocumentExtension(objectPath, null)) return null;
+  return objectPath;
 }
 
 export async function POST(req: NextRequest) {
@@ -160,8 +167,8 @@ export async function POST(req: NextRequest) {
       .returning();
 
     return NextResponse.json({ success: true, resource }, { status: 201 });
-  } catch {
-    console.error("Add resource failed");
+  } catch (error) {
+    logSupabaseStorageError("Add resource failed", error);
     return NextResponse.json(
       { error: "Resource could not be added" },
       { status: 500 }
@@ -265,7 +272,7 @@ export async function DELETE(req: NextRequest) {
         .from(getDocumentBucketName())
         .remove([existing.filePath]);
       if (error) {
-        console.error("Document storage deletion failed");
+        logSupabaseStorageError("Document storage deletion failed", error);
         return NextResponse.json(
           { error: "The document could not be removed from private storage" },
           { status: 502 }
@@ -275,8 +282,8 @@ export async function DELETE(req: NextRequest) {
 
     await db.delete(resources).where(eq(resources.id, id));
     return NextResponse.json({ success: true });
-  } catch {
-    console.error("Delete resource failed");
+  } catch (error) {
+    logSupabaseStorageError("Delete resource failed", error);
     return NextResponse.json(
       { error: "Resource could not be deleted" },
       { status: 500 }
