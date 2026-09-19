@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
     if (!getDocumentExtension(fileName, contentType)) {
       return NextResponse.json(
-        { error: "Only PDF, DOCX, TXT, and ZIP documents are supported." },
+        { error: "Only PDF, DOCX, TXT, Markdown, and ZIP documents are supported." },
         { status: 400 }
       );
     }
