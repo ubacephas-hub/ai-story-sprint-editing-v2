@@ -3,8 +3,9 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
-import { courses, modules, lessons } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { courses, lessons, modules } from "@/db/schema";
+import { asc, eq } from "drizzle-orm";
+import LessonManager from "./LessonManager";
 
 export const dynamic = "force-dynamic";
 
@@ -13,78 +14,62 @@ export default async function AdminLessonsPage() {
   if (!session) redirect("/login");
   if (session.user.role !== "admin") redirect("/dashboard");
 
-  const user = session.user;
-
-  const allCourses = await db.select().from(courses).limit(1);
-  if (allCourses.length === 0) redirect("/admin");
-  const course = allCourses[0];
+  const [course] = await db.select().from(courses).limit(1);
+  if (!course) redirect("/admin");
 
   const allModules = await db
-    .select()
+    .select({ id: modules.id, title: modules.title, position: modules.position })
     .from(modules)
     .where(eq(modules.courseId, course.id))
-    .orderBy(asc(modules.position));
+    .orderBy(asc(modules.position), asc(modules.id));
 
-  const modulesWithLessons = [];
-  for (const mod of allModules) {
-    const lessonList = await db
-      .select()
+  const lessonsByModule = [];
+  for (const courseModule of allModules) {
+    const moduleLessons = await db
+      .select({
+        id: lessons.id,
+        moduleId: lessons.moduleId,
+        title: lessons.title,
+        description: lessons.description,
+        position: lessons.position,
+        videoKind: lessons.videoKind,
+        videoSource: lessons.videoSource,
+      })
       .from(lessons)
-      .where(eq(lessons.moduleId, mod.id))
-      .orderBy(asc(lessons.position));
-    modulesWithLessons.push({ module: mod, lessons: lessonList });
+      .where(eq(lessons.moduleId, courseModule.id))
+      .orderBy(asc(lessons.position), asc(lessons.id));
+    lessonsByModule.push({ module: courseModule, lessons: moduleLessons });
   }
-
-  let lessonNum = 1;
 
   return (
     <>
-      <Navbar user={user} />
-      <main className="w-[min(1080px,calc(100%-32px))] mx-auto py-8">
-        <div className="mb-4">
-          <Link
-            href="/admin"
-            className="text-sm text-[var(--muted)] hover:text-[var(--brand)] no-underline"
-          >
-            ← Back to Dashboard
-          </Link>
-        </div>
-
-        <h1 className="text-2xl font-semibold mb-6">Lessons</h1>
-
-        <div className="grid gap-4">
-          {modulesWithLessons.map((mod, mi) => (
-            <div key={mod.module.id} className="card">
-              <h3 className="text-lg font-semibold mb-3">
-                Module {mi + 1} — {mod.module.title}
-              </h3>
-              <div className="grid gap-2">
-                {mod.lessons.map((lesson) => {
-                  const num = lessonNum++;
-                  return (
-                    <Link
-                      key={lesson.id}
-                      href={`/admin/lessons/${lesson.id}`}
-                      className="flex items-center justify-between p-3 rounded-lg border border-[var(--line)] hover:border-[var(--brand)] hover:bg-[#f8f7ff] transition-colors no-underline text-[var(--ink)]"
-                    >
-                      <div>
-                        <span className="font-semibold">Lesson {num}</span> —{" "}
-                        {lesson.title}
-                        {lesson.videoKind !== "none" && lesson.videoSource && (
-                          <span className="ml-2 text-xs text-[var(--ok)] font-bold">
-                            📹 Video attached
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[var(--brand)] text-sm font-semibold">
-                        Edit →
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
+      <Navbar user={session.user} />
+      <main>
+        <div className="app-page">
+          <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
+            <div>
+              <Link
+                href="/admin"
+                className="text-sm text-[var(--muted)] hover:text-[var(--brand)] no-underline"
+              >
+                ← Back to Dashboard
+              </Link>
+              <p className="page-eyebrow mt-4">Course structure</p>
+              <h1 className="text-3xl font-bold mt-1">Lessons</h1>
+              <p className="text-[var(--muted)] mt-2">
+                Create, edit, reorder, and move lessons between modules. Existing
+                lesson IDs and student progress are preserved.
+              </p>
             </div>
-          ))}
+            <Link href="/admin/modules" className="btn secondary no-underline">
+              Manage modules
+            </Link>
+          </div>
+
+          <LessonManager
+            modules={allModules}
+            lessonsByModule={lessonsByModule}
+          />
         </div>
       </main>
     </>

@@ -1,5 +1,19 @@
 import type { NextConfig } from "next";
 
+function configuredSupabaseOrigin(): string {
+  const value = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+const connectSources = ["'self'", configuredSupabaseOrigin()].filter(Boolean).join(" ");
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -15,7 +29,7 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: https:",
               "font-src 'self' data:",
               "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
-              "connect-src 'self'",
+              `connect-src ${connectSources}`,
             ].join("; "),
           },
         ],

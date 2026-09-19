@@ -1,16 +1,31 @@
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
+import { db } from "@/db";
+import { lessons, modules } from "@/db/schema";
+import { sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   let user = null;
+  let moduleCount = 0;
+  let lessonCount = 0;
   try {
     const session = await getSession();
     user = session?.user ?? null;
+    if (db) {
+      const [moduleTotal] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(modules);
+      const [lessonTotal] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(lessons);
+      moduleCount = Number(moduleTotal?.count || 0);
+      lessonCount = Number(lessonTotal?.count || 0);
+    }
   } catch {
-    // DB not yet ready — show public page
+    // DB not yet ready — show the public page with neutral counts.
   }
 
   return (
@@ -38,11 +53,11 @@ export default async function HomePage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-10">
               <div className="bg-white border border-[var(--line)] rounded-xl p-5">
-                <strong className="block text-xl">4</strong>
+                <strong className="block text-xl">{moduleCount}</strong>
                 <span className="text-[var(--muted)] text-sm">Modules</span>
               </div>
               <div className="bg-white border border-[var(--line)] rounded-xl p-5">
-                <strong className="block text-xl">8</strong>
+                <strong className="block text-xl">{lessonCount}</strong>
                 <span className="text-[var(--muted)] text-sm">
                   Video Lessons
                 </span>
