@@ -131,14 +131,17 @@ export default function ResourceActions({ lessons, resources }: Props) {
     try {
       let filePath: string | undefined;
       if (type === "document") {
-        if (!file) throw new Error("Choose a PDF, DOCX, TXT, or ZIP file first.");
+        if (!file)
+          throw new Error("Choose a PDF, DOCX, TXT, Markdown, or ZIP file first.");
         if (!isSupportedDocumentSize(file.size)) {
           throw new Error(
             `Documents must be ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB or smaller.`
           );
         }
         if (!getDocumentExtension(file.name, file.type)) {
-          throw new Error("Only PDF, DOCX, TXT, and ZIP documents are supported.");
+          throw new Error(
+            "Only PDF, DOCX, TXT, Markdown, and ZIP documents are supported."
+          );
         }
         setStatus("Requesting a secure upload URL…");
         const upload = await requestUploadUrl(file);
@@ -345,13 +348,13 @@ export default function ResourceActions({ lessons, resources }: Props) {
                 <input
                   id="resource-file"
                   type="file"
-                  accept=".pdf,.docx,.txt,.zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/zip"
+                  accept=".pdf,.docx,.txt,.md,.zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/x-markdown,application/zip"
                   onChange={(event) => setFile(event.target.files?.[0] || null)}
                   required
                   disabled={saving}
                 />
                 <p className="text-sm text-[var(--muted)] mt-1">
-                  PDF, DOCX, TXT, or ZIP. Maximum 25 MB. The bucket remains private.
+                  PDF, DOCX, TXT, Markdown, or ZIP. Maximum 25 MB.
                 </p>
                 {file && (
                   <p className="text-sm text-[var(--ok)] mt-1">

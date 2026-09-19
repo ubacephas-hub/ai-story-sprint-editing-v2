@@ -7,6 +7,7 @@ export const DOCUMENT_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ],
   txt: ["text/plain"],
+  md: ["text/markdown", "text/x-markdown", "text/plain"],
   zip: ["application/zip", "application/x-zip-compressed"],
 } as const;
 
