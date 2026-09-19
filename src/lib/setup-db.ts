@@ -1,7 +1,7 @@
 import { pool } from "@/db";
 import { seedDatabase, getDatabaseCounts } from "@/lib/seed";
 
-const schemaSql = `
+export const schemaSql = `
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
   password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'student',
@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
   last_watched_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS lesson_progress_user_lesson_idx ON lesson_progress(user_id, lesson_id);
-CREATE INDEX IF NOT EXISTS lesson_progress_user_last_watched_idx ON lesson_progress(user_id, last_watched_at DESC);
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TIMESTAMPTZ NOT NULL
@@ -76,13 +75,23 @@ UPDATE lesson_progress SET percent_complete = 100 WHERE status = 'completed' AND
 CREATE INDEX IF NOT EXISTS lesson_progress_user_last_watched_idx ON lesson_progress(user_id, last_watched_at DESC);
 `;
 
+export interface SetupSchemaClient {
+  query(sql: string): Promise<unknown>;
+}
+
+/** Execute the schema portion used by setupDatabase. Kept separate so the
+ * additive upgrade order can be tested without touching a real database. */
+export async function applySetupSchema(client: SetupSchemaClient): Promise<void> {
+  await client.query(schemaSql);
+}
+
 export async function setupDatabase() {
   if (!pool) throw new Error("DATABASE_URL is not configured");
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(8462107)");
-    await client.query(schemaSql);
+    await applySetupSchema(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
