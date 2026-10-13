@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { courseAccess, courses, lessons, modules, users } from "@/db/schema";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getAdminProgressSnapshots } from "@/lib/admin-progress";
 import StudentActions from "./StudentActions";
 
@@ -38,7 +38,13 @@ export default async function AdminStudentsPage() {
         .select({ count: sql<number>`count(*)` })
         .from(lessons)
         .innerJoin(modules, eq(lessons.moduleId, modules.id))
-        .where(eq(modules.courseId, courseId))
+        .where(
+          and(
+            eq(modules.courseId, courseId),
+            isNull(modules.archivedAt),
+            isNull(lessons.archivedAt)
+          )
+        )
     : [{ count: 0 }];
 
   const studentsWithInfo = students.map((student) => {

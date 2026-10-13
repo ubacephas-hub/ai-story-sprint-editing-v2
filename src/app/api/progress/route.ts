@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { courseAccess, lessonProgress, lessons, modules } from "@/db/schema";
 import { getSession } from "@/lib/auth";
@@ -70,7 +70,12 @@ export async function POST(req: NextRequest) {
     }
 
     const [lesson] = await db
-      .select({ lessonId: lessons.id, courseId: modules.courseId })
+      .select({
+        lessonId: lessons.id,
+        courseId: modules.courseId,
+        lessonArchivedAt: lessons.archivedAt,
+        moduleArchivedAt: modules.archivedAt,
+      })
       .from(lessons)
       .innerJoin(modules, eq(lessons.moduleId, modules.id))
       .innerJoin(
@@ -81,7 +86,13 @@ export async function POST(req: NextRequest) {
           eq(courseAccess.status, "active")
         )
       )
-      .where(eq(lessons.id, lessonId))
+      .where(
+        and(
+          eq(lessons.id, lessonId),
+          isNull(lessons.archivedAt),
+          isNull(modules.archivedAt)
+        )
+      )
       .limit(1);
 
     if (
@@ -89,6 +100,8 @@ export async function POST(req: NextRequest) {
         role: session.user.role,
         accessStatus: lesson ? "active" : "none",
         lessonBelongsToCourse: Boolean(lesson),
+        moduleArchivedAt: lesson?.moduleArchivedAt,
+        lessonArchivedAt: lesson?.lessonArchivedAt,
       })
     ) {
       return NextResponse.json(

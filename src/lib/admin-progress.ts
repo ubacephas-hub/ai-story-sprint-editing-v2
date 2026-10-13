@@ -2,6 +2,11 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { courses, lessonProgress, lessons, modules, users } from "@/db/schema";
 import {
+  activeStudentContent,
+  withArchiveStatus,
+  type ArchiveReason,
+} from "@/lib/content-archive";
+import {
   displayPercentage,
   overallProgressPercentage,
 } from "@/lib/progress";
@@ -20,6 +25,8 @@ export interface AdminLessonProgress {
   percentComplete: number;
   updatedAt: Date | null;
   lastWatchedAt: Date | null;
+  isArchived: boolean;
+  archiveReason: ArchiveReason;
 }
 
 export interface AdminProgressSnapshot {
@@ -33,6 +40,8 @@ export interface AdminProgressSnapshot {
     percentComplete: number;
     status: string | null;
     lastWatchedAt: Date;
+    isArchived: boolean;
+    archiveReason: ArchiveReason;
   } | null;
   lastWatchedAt: Date | null;
   lessons: AdminLessonProgress[];
@@ -61,6 +70,8 @@ export async function getAdminProgressSnapshots(
     );
   if (studentRows.length === 0) return [];
 
+  // Keep all lessons in this administrator-only history. Archive flags are
+  // labels, not filters; no lesson_progress rows are removed or rewritten.
   const courseLessons = await db
     .select({
       lessonId: lessons.id,
@@ -68,12 +79,17 @@ export async function getAdminProgressSnapshots(
       moduleTitle: modules.title,
       modulePosition: modules.position,
       lessonPosition: lessons.position,
+      lessonArchivedAt: lessons.archivedAt,
+      moduleArchivedAt: modules.archivedAt,
     })
     .from(lessons)
     .innerJoin(modules, eq(lessons.moduleId, modules.id))
     .where(eq(modules.courseId, course.id))
     .orderBy(asc(modules.position), asc(lessons.position), asc(lessons.id));
 
+  const activeLessonIds = new Set(
+    activeStudentContent(courseLessons).map((lesson) => lesson.lessonId)
+  );
   const userIds = studentRows.map((student) => student.id);
   const progressRows = await db
     .select({
@@ -106,6 +122,10 @@ export async function getAdminProgressSnapshots(
   return studentRows.map((student) => {
     const studentLessons: AdminLessonProgress[] = courseLessons.map((lesson) => {
       const row = progressByStudent.get(`${student.id}:${lesson.lessonId}`);
+      const archiveStatus = withArchiveStatus({
+        moduleArchivedAt: lesson.moduleArchivedAt,
+        lessonArchivedAt: lesson.lessonArchivedAt,
+      });
       return {
         lessonId: lesson.lessonId,
         title: lesson.title,
@@ -120,9 +140,12 @@ export async function getAdminProgressSnapshots(
         percentComplete: progressPercent(row?.status || null, row?.percentComplete || 0),
         updatedAt: row?.updatedAt || null,
         lastWatchedAt: row?.lastWatchedAt || null,
+        isArchived: archiveStatus.isArchived,
+        archiveReason: archiveStatus.archiveReason,
       };
     });
 
+    const activeLessons = studentLessons.filter((lesson) => activeLessonIds.has(lesson.lessonId));
     const watchedLessons = studentLessons
       .filter((lesson) => lesson.lastWatchedAt)
       .sort(
@@ -130,7 +153,7 @@ export async function getAdminProgressSnapshots(
           right.lastWatchedAt!.getTime() - left.lastWatchedAt!.getTime()
       );
     const mostRecent = watchedLessons[0];
-    const progressValues = studentLessons.map((lesson) => ({
+    const progressValues = activeLessons.map((lesson) => ({
       status: lesson.status,
       percentComplete: lesson.percentComplete,
     }));
@@ -138,8 +161,8 @@ export async function getAdminProgressSnapshots(
     return {
       studentId: student.id,
       overallPercent: overallProgressPercentage(progressValues),
-      completedLessons: studentLessons.filter((lesson) => lesson.status === "completed").length,
-      totalLessons: studentLessons.length,
+      completedLessons: activeLessons.filter((lesson) => lesson.status === "completed").length,
+      totalLessons: activeLessons.length,
       mostRecentLesson: mostRecent?.lastWatchedAt
         ? {
             lessonId: mostRecent.lessonId,
@@ -147,6 +170,8 @@ export async function getAdminProgressSnapshots(
             percentComplete: mostRecent.percentComplete,
             status: mostRecent.status,
             lastWatchedAt: mostRecent.lastWatchedAt,
+            isArchived: mostRecent.isArchived,
+            archiveReason: mostRecent.archiveReason,
           }
         : null,
       lastWatchedAt: mostRecent?.lastWatchedAt || null,

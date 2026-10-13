@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { lessons, modules } from "@/db/schema";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import LessonEditForm from "./LessonEditForm";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +36,26 @@ export default async function AdminLessonEditPage({ params }: Props) {
     .limit(1);
   if (!currentModule) notFound();
 
-  const availableModules = await db
-    .select({ id: modules.id, title: modules.title, position: modules.position })
+  const activeModules = await db
+    .select({
+      id: modules.id,
+      title: modules.title,
+      position: modules.position,
+      archivedAt: modules.archivedAt,
+    })
     .from(modules)
-    .where(eq(modules.courseId, currentModule.courseId))
+    .where(and(eq(modules.courseId, currentModule.courseId), isNull(modules.archivedAt)))
     .orderBy(asc(modules.position), asc(modules.id));
+
+  const currentModuleOption = {
+    id: currentModule.id,
+    title: currentModule.title,
+    position: currentModule.position,
+    archivedAt: currentModule.archivedAt,
+  };
+  const availableModules = currentModule.archivedAt
+    ? [currentModuleOption]
+    : activeModules;
 
   return (
     <>
@@ -59,10 +74,15 @@ export default async function AdminLessonEditPage({ params }: Props) {
           <p className="page-eyebrow">Course structure</p>
           <h1 className="text-3xl font-bold mt-1">Edit lesson</h1>
           <p className="text-[var(--muted)] mb-6">
-            Update the lesson content, order, module assignment, and video source.
+            Update title, description, order, module assignment, and video
+            source. Archiving keeps the lesson’s ID, resources, and progress.
           </p>
 
-          <LessonEditForm lesson={lesson} modules={availableModules} />
+          <LessonEditForm
+            lesson={lesson}
+            currentModuleArchivedAt={currentModule.archivedAt}
+            modules={availableModules}
+          />
         </div>
       </main>
     </>

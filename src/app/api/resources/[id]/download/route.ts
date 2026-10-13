@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { courseAccess, lessons, modules, resources } from "@/db/schema";
 import { getSession } from "@/lib/auth";
 import { canDownloadDocument } from "@/lib/document-access";
+import { isStudentContentActive } from "@/lib/content-archive";
 import {
   getDocumentBucketName,
   getDocumentStorageAdmin,
@@ -42,6 +43,8 @@ export async function GET(_req: NextRequest, { params }: Props) {
         type: resources.type,
         filePath: resources.filePath,
         courseId: modules.courseId,
+        lessonArchivedAt: lessons.archivedAt,
+        moduleArchivedAt: modules.archivedAt,
       })
       .from(resources)
       .innerJoin(lessons, eq(resources.lessonId, lessons.id))
@@ -73,6 +76,10 @@ export async function GET(_req: NextRequest, { params }: Props) {
         role: session.user.role,
         accountStatus: session.user.accountStatus,
         courseAccessStatus,
+        contentActive: isStudentContentActive({
+          moduleArchivedAt: resource.moduleArchivedAt,
+          lessonArchivedAt: resource.lessonArchivedAt,
+        }),
       })
     ) {
       return NextResponse.json(

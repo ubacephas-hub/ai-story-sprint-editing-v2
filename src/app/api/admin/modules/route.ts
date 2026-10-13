@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { courses, lessons, modules } from "@/db/schema";
 import { getSession } from "@/lib/auth";
+import {
+  archiveMetadataPatch,
+  restoreMetadataPatch,
+} from "@/lib/content-archive";
 
 function positiveInteger(value: unknown): number | null {
   const number = typeof value === "number" ? value : Number(value);
@@ -37,19 +41,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const course = await db
+    const [course] = await db
       .select({ id: courses.id })
       .from(courses)
       .where(eq(courses.id, courseId))
       .limit(1);
-    if (course.length === 0) {
+    if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
     const [maxPosition] = await db
       .select({ position: sql<number>`coalesce(max(${modules.position}), 0)` })
       .from(modules)
-      .where(eq(modules.courseId, courseId));
+      .where(and(eq(modules.courseId, courseId), isNull(modules.archivedAt)));
 
     const [createdModule] = await db
       .insert(modules)
@@ -90,29 +94,36 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const existing = await db
+    const [current] = await db
       .select()
       .from(modules)
       .where(eq(modules.id, id))
       .limit(1);
-    if (existing.length === 0) {
+    if (!current) {
       return NextResponse.json({ error: "Module not found" }, { status: 404 });
     }
 
-    const current = existing[0];
+    if (current.archivedAt) {
+      await db
+        .update(modules)
+        .set({ title, position: requestedPosition })
+        .where(eq(modules.id, id));
+      return NextResponse.json({ success: true });
+    }
+
     await db.transaction(async (tx) => {
       const ordered = await tx
         .select({ id: modules.id })
         .from(modules)
-        .where(eq(modules.courseId, current.courseId))
+        .where(and(eq(modules.courseId, current.courseId), isNull(modules.archivedAt)))
         .orderBy(asc(modules.position), asc(modules.id));
 
       const remaining = ordered.filter((item) => item.id !== id);
       const insertAt = Math.min(requestedPosition - 1, remaining.length);
       remaining.splice(insertAt, 0, { id });
 
-      // Reassign positions in one transaction. IDs and lesson relationships do
-      // not change, and every module receives a unique, contiguous position.
+      // Reorder only active modules. Archived rows and every lesson relationship
+      // keep their IDs and stored content unchanged.
       for (let index = 0; index < remaining.length; index += 1) {
         await tx
           .update(modules)
@@ -120,10 +131,7 @@ export async function PUT(req: NextRequest) {
           .where(eq(modules.id, remaining[index].id));
       }
 
-      await tx
-        .update(modules)
-        .set({ title })
-        .where(eq(modules.id, id));
+      await tx.update(modules).set({ title }).where(eq(modules.id, id));
     });
 
     return NextResponse.json({ success: true });
@@ -136,6 +144,93 @@ export async function PUT(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await requireAdmin();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const id = positiveInteger(body.id);
+    const action = body.action;
+    if (!id || (action !== "archive" && action !== "restore")) {
+      return NextResponse.json({ error: "A module and valid action are required" }, { status: 400 });
+    }
+
+    const expectedConfirmation = action === "archive" ? "ARCHIVE MODULE" : "RESTORE MODULE";
+    if (body.confirmation !== expectedConfirmation) {
+      return NextResponse.json(
+        { error: `Type ${expectedConfirmation} to confirm this action` },
+        { status: 400 }
+      );
+    }
+
+    const [existing] = await db
+      .select({
+        id: modules.id,
+        courseId: modules.courseId,
+        position: modules.position,
+        archivedAt: modules.archivedAt,
+      })
+      .from(modules)
+      .where(eq(modules.id, id))
+      .limit(1);
+    if (!existing) {
+      return NextResponse.json({ error: "Module not found" }, { status: 404 });
+    }
+
+    if (action === "archive") {
+      if (existing.archivedAt) {
+        return NextResponse.json({ success: true, alreadyArchived: true });
+      }
+      await db
+        .update(modules)
+        .set(archiveMetadataPatch(new Date(), session.user.id))
+        .where(and(eq(modules.id, id), isNull(modules.archivedAt)));
+      return NextResponse.json({ success: true });
+    }
+
+    if (!existing.archivedAt) {
+      return NextResponse.json({ success: true, alreadyActive: true });
+    }
+    await db.transaction(async (tx) => {
+      const activeModules = await tx
+        .select({ id: modules.id, position: modules.position })
+        .from(modules)
+        .where(
+          and(eq(modules.courseId, existing.courseId), isNull(modules.archivedAt))
+        )
+        .orderBy(asc(modules.position), asc(modules.id));
+
+      // Keep the archived module's saved order. Shift active neighbors after
+      // that slot without changing their relative order.
+      for (const activeModule of activeModules
+        .filter((module) => module.position >= existing.position)
+        .sort((left, right) => right.position - left.position)) {
+        await tx
+          .update(modules)
+          .set({ position: activeModule.position + 1 })
+          .where(eq(modules.id, activeModule.id));
+      }
+
+      await tx
+        .update(modules)
+        .set(restoreMetadataPatch())
+        .where(eq(modules.id, id));
+    });
+    return NextResponse.json({ success: true });
+  } catch {
+    console.error("Module archive/restore failed");
+    return NextResponse.json(
+      { error: "Module could not be archived or restored" },
+      { status: 500 }
+    );
+  }
+}
+
+/** Retain the legacy empty-module deletion route; populated modules are never
+ * deleted (the lesson-count guard prevents cascading content deletion). */
 export async function DELETE(req: NextRequest) {
   try {
     const session = await requireAdmin();
@@ -152,12 +247,12 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const existing = await db
+    const [existing] = await db
       .select({ id: modules.id })
       .from(modules)
       .where(eq(modules.id, id))
       .limit(1);
-    if (existing.length === 0) {
+    if (!existing) {
       return NextResponse.json({ error: "Module not found" }, { status: 404 });
     }
 

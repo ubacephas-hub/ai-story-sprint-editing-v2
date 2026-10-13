@@ -77,12 +77,21 @@ Do not run setup, seed, migrations, or destructive storage/database operations a
 
 ## Content management
 
-- **Admin → Modules** creates, renames, and reorders modules. A module with lessons cannot be deleted; deleting an empty module requires the exact confirmation in the interface.
-- **Admin → Lessons** creates lessons in any module and immediately refreshes the list. Lesson editing supports title, description/content, order, module moves, YouTube URLs, and direct HTTP(S) video URLs.
-- Lesson IDs and progress rows are updated only through additive content changes; there is no hard-delete lesson action.
+- **Admin → Modules** creates, renames, and reorders active modules. Active and Archived tabs provide archive/restore controls. Archiving requires typing `ARCHIVE MODULE`; restore requires confirmation.
+- **Admin → Lessons** creates lessons only in active modules and supports title, description/content, order, active-module moves, YouTube URLs, and direct HTTP(S) video URLs. Active and Archived tabs include lessons hidden by an archived parent module.
+- Archiving a lesson requires typing `ARCHIVE LESSON`; restore requires confirmation. Archive/restore updates only nullable metadata. Lesson IDs, module relationships, videos, resources, and progress rows are preserved; no lesson delete action is provided.
+- Archived content is excluded from student views, navigation, resources, playback/progress writes, and active progress denominators. Administrators retain access to archived content and historical progress, with archive labels.
 - **Admin → Resources** adds links, text, or private documents, edits assignment/title/description/order, and deletes resources with confirmation.
 - Document bytes go directly from the browser to the private Supabase bucket using a one-time signed upload URL. The Vercel API receives metadata only.
-- Students must have an authenticated session and Active access to the document's course before the server redirects them to a five-minute signed download URL. Pending, suspended, removed, disabled, and unauthenticated users are denied.
+- Students must have an authenticated session and Active access to the document's course and its active lesson/module before the server redirects them to a five-minute signed download URL. Pending, suspended, removed, disabled, and unauthenticated users are denied.
+
+## Content archive migration, rollback, and delivery notes
+
+`migrations/004_content_archiving.sql` is an idempotent additive migration. It adds nullable `modules.archived_at`, `modules.archived_by`, `lessons.archived_at`, and `lessons.archived_by` fields, nullable user foreign keys, and partial indexes for active module/lesson scans. It does not modify existing content, progress, IDs, relationships, or archive any rows automatically. The protected setup/schema helper supports both fresh and existing databases.
+
+Apply the migration to **Staging only**, after the normal Staging backup and data-inventory checks. Run the SQL twice to confirm it is safe to repeat. A rollback of application code alone does not erase archive metadata, but older application versions do not enforce the archive flags and could expose content marked archived by this version. If archived rows exist, keep an archive-aware application deployed or perform a reviewed Staging-only restore/unarchive operation before rolling application code back. Do not drop archive columns/indexes as part of a routine rollback; the migration includes commented manual schema rollback guidance for a separately approved cleanup only.
+
+See [`docs/content-archive-delivery.md`](docs/content-archive-delivery.md) for the Staging checklist, safety checks, loading-bar checks, and rollback guidance. No Staging test or Production operation is performed automatically by this repository change.
 
 ## Playback progress migration, rollback, and delivery notes
 
@@ -111,9 +120,15 @@ npm audit --omit=dev
 
 - [ ] Existing administrator and student logins still work.
 - [ ] Existing progress, completed lessons, course access, videos, links, text resources, and private documents remain available.
-- [ ] Apply `003_lesson_playback_progress.sql` to staging only; run it twice and confirm the second run is a no-op.
+- [ ] Apply `003_lesson_playback_progress.sql` and `004_content_archiving.sql` to Staging only; run each twice and confirm the second run succeeds without changing row counts or IDs.
 - [ ] Confirm lesson-progress row count, IDs, `status`, `completed_at`, users, enrollments, and video/resource metadata are unchanged; legacy completed rows display as 100%.
-- [ ] Create an empty test module, rename it, and reorder it; confirm modules containing lessons cannot be hard-deleted.
+- [ ] Create a test module, rename it, and reorder it; verify no module containing lessons can be hard-deleted and use archive/restore for removal from student views.
+- [ ] In Staging, archive a test module after typing `ARCHIVE MODULE`; confirm students cannot see its outline, lessons, resources, progress denominator, or direct lesson URLs. Confirm Admin retains the module and progress history, then restore it and verify IDs, title, order, lessons, videos, resources, and progress.
+- [ ] Archive a test lesson after typing `ARCHIVE LESSON`; confirm it is absent from Continue Learning, progress totals, resource lists, and Previous/Next navigation, and direct page/progress/document access is denied. Restore it and confirm all data returns.
+- [ ] Rename/reorder active modules and lessons, move a lesson between active modules, and confirm archived modules are not accepted as move/create targets and existing videos/resources/progress remain linked.
+- [ ] Confirm Admin → Modules and Admin → Lessons have clear Active/Archived filters, restore confirmations, and helpful empty states; archived progress rows are labeled and remain visible.
+- [ ] Test the route-loading bar on public, login/enrollment, student, and admin routes at desktop/mobile sizes; verify Back/Forward completion, external/download/anchor/modified-click exclusions, reduced-motion behavior, and timeout reset.
+- [ ] Confirm module cards/headers use one purple gradient and lesson rows remain visually neutral with readable contrast.
 - [ ] Add three test lessons and verify they appear immediately in Admin → Lessons.
 - [ ] Test a direct MP4 lesson: metadata, play, pause, seek, resume, ended, refresh, route change, page hide/show, and another browser/device.
 - [ ] Test an HLS `.m3u8` source in a browser that supports it and confirm unsupported browsers fail gracefully.

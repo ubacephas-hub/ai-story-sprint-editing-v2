@@ -2,6 +2,7 @@ export interface DocumentAccessInput {
   role: string | null | undefined;
   accountStatus: string | null | undefined;
   courseAccessStatus: string | null | undefined;
+  contentActive?: boolean;
 }
 
 /**
@@ -14,8 +15,9 @@ export function canDownloadDocument({
   role,
   accountStatus,
   courseAccessStatus,
+  contentActive = true,
 }: DocumentAccessInput): boolean {
   if (accountStatus !== "active") return false;
   if (role === "admin") return true;
-  return role === "student" && courseAccessStatus === "active";
+  return role === "student" && courseAccessStatus === "active" && contentActive;
 }

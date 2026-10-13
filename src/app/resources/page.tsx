@@ -3,7 +3,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { courseAccess, lessons, modules, resources } from "@/db/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import ResourceBrowser from "./ResourceBrowser";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,13 @@ export default async function ResourcesPage() {
     .from(resources)
     .innerJoin(lessons, eq(resources.lessonId, lessons.id))
     .innerJoin(modules, eq(lessons.moduleId, modules.id))
-    .where(eq(modules.courseId, access.courseId))
+    .where(
+      and(
+        eq(modules.courseId, access.courseId),
+        isNull(modules.archivedAt),
+        isNull(lessons.archivedAt)
+      )
+    )
     .orderBy(asc(modules.position), asc(lessons.position), asc(resources.position));
 
   return (

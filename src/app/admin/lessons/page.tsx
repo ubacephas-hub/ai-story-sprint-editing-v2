@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { asc, eq } from "drizzle-orm";
 import Navbar from "@/components/Navbar";
-import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { courses, lessons, modules } from "@/db/schema";
-import { asc, eq } from "drizzle-orm";
+import { getSession } from "@/lib/auth";
 import LessonManager from "./LessonManager";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,12 @@ export default async function AdminLessonsPage() {
   if (!course) redirect("/admin");
 
   const allModules = await db
-    .select({ id: modules.id, title: modules.title, position: modules.position })
+    .select({
+      id: modules.id,
+      title: modules.title,
+      position: modules.position,
+      archivedAt: modules.archivedAt,
+    })
     .from(modules)
     .where(eq(modules.courseId, course.id))
     .orderBy(asc(modules.position), asc(modules.id));
@@ -34,12 +39,15 @@ export default async function AdminLessonsPage() {
         position: lessons.position,
         videoKind: lessons.videoKind,
         videoSource: lessons.videoSource,
+        archivedAt: lessons.archivedAt,
       })
       .from(lessons)
       .where(eq(lessons.moduleId, courseModule.id))
       .orderBy(asc(lessons.position), asc(lessons.id));
     lessonsByModule.push({ module: courseModule, lessons: moduleLessons });
   }
+
+  const activeModules = allModules.filter((courseModule) => !courseModule.archivedAt);
 
   return (
     <>
@@ -57,8 +65,9 @@ export default async function AdminLessonsPage() {
               <p className="page-eyebrow mt-4">Course structure</p>
               <h1 className="text-3xl font-bold mt-1">Lessons</h1>
               <p className="text-[var(--muted)] mt-2">
-                Create, edit, reorder, and move lessons between modules. Existing
-                lesson IDs and student progress are preserved.
+                Edit lesson content and video sources, change order, or move a
+                lesson between active modules. Archiving never removes progress
+                or resources.
               </p>
             </div>
             <Link href="/admin/modules" className="btn secondary no-underline">
@@ -67,7 +76,7 @@ export default async function AdminLessonsPage() {
           </div>
 
           <LessonManager
-            modules={allModules}
+            modules={activeModules}
             lessonsByModule={lessonsByModule}
           />
         </div>
