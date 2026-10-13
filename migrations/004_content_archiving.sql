@@ -45,9 +45,11 @@ CREATE INDEX IF NOT EXISTS lessons_active_module_position_idx
 COMMIT;
 
 -- Rollback guidance: application rollback is safe without a database rollback;
--- leave these nullable fields and indexes in place so deployed code versions
--- can continue to read them. If a schema rollback is ever separately approved,
--- first confirm no deployed version reads archive metadata, then run manually:
+-- leave these nullable fields and indexes in place so archive-aware deployed
+-- code can continue to read them. An older application that ignores archived_at
+-- may expose archived content. If a schema rollback is separately approved,
+-- first decide how archived visibility and actor history will be preserved,
+-- confirm no deployed version reads these fields, then run manually:
 --   DROP INDEX IF EXISTS lessons_active_module_position_idx;
 --   DROP INDEX IF EXISTS modules_active_course_position_idx;
 --   ALTER TABLE lessons DROP CONSTRAINT IF EXISTS lessons_archived_by_fkey;
