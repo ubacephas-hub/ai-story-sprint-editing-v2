@@ -15,6 +15,8 @@ interface LessonProgressRow {
   watchedSeconds: number;
   percentComplete: number;
   lastWatchedAt: string | Date | null;
+  isArchived: boolean;
+  archiveReason: "lesson" | "module" | null;
 }
 
 interface Snapshot {
@@ -28,6 +30,8 @@ interface Snapshot {
     percentComplete: number;
     status: string | null;
     lastWatchedAt: string | Date;
+    isArchived: boolean;
+    archiveReason: "lesson" | "module" | null;
   } | null;
   lastWatchedAt: string | Date | null;
   lessons: LessonProgressRow[];
@@ -102,6 +106,11 @@ export default function StudentProgressLive({
         <div className="soft-card">
           <span className="text-sm text-[var(--muted)]">Most recent lesson</span>
           <strong className="block truncate">{snapshot.mostRecentLesson?.title || "Not started"}</strong>
+          {snapshot.mostRecentLesson?.isArchived && (
+            <span className="text-xs text-[var(--warn)]">
+              Archived {snapshot.mostRecentLesson.archiveReason === "module" ? "module content" : "lesson"}
+            </span>
+          )}
         </div>
         <div className="soft-card">
           <span className="text-sm text-[var(--muted)]">Last watched</span>
@@ -139,6 +148,11 @@ export default function StudentProgressLive({
                       {lesson.moduleTitle} · Lesson {lesson.lessonPosition}
                     </small>
                     <strong className="block">{lesson.title}</strong>
+                    {lesson.isArchived && (
+                      <span className="badge archived-badge mt-2">
+                        {lesson.archiveReason === "module" ? "Archived module" : "Archived lesson"}
+                      </span>
+                    )}
                   </div>
                   <span className={`badge ${label === "In progress" ? "in-progress" : label.toLowerCase()}`}>
                     {label}

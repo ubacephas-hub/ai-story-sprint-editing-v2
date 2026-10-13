@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -39,27 +40,51 @@ export const courses = pgTable(
   (t) => [uniqueIndex("courses_slug_idx").on(t.slug)]
 );
 
-export const modules = pgTable("modules", {
-  id: serial("id").primaryKey(),
-  courseId: integer("course_id")
-    .notNull()
-    .references(() => courses.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  position: integer("position").notNull().default(0),
-});
+export const modules = pgTable(
+  "modules",
+  {
+    id: serial("id").primaryKey(),
+    courseId: integer("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: integer("archived_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    index("modules_active_course_position_idx")
+      .on(t.courseId, t.position, t.id)
+      .where(sql`${t.archivedAt} IS NULL`),
+  ]
+);
 
-export const lessons = pgTable("lessons", {
-  id: serial("id").primaryKey(),
-  moduleId: integer("module_id")
-    .notNull()
-    .references(() => modules.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  position: integer("position").notNull().default(0),
-  videoKind: text("video_kind").notNull().default("none"), // 'none' | 'url' | 'upload' | 'youtube'
-  videoSource: text("video_source"), // URL, file path, or YouTube URL
-  videoMime: text("video_mime"),
-});
+export const lessons = pgTable(
+  "lessons",
+  {
+    id: serial("id").primaryKey(),
+    moduleId: integer("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    position: integer("position").notNull().default(0),
+    videoKind: text("video_kind").notNull().default("none"), // 'none' | 'url' | 'upload' | 'youtube'
+    videoSource: text("video_source"), // URL, file path, or YouTube URL
+    videoMime: text("video_mime"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: integer("archived_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    index("lessons_active_module_position_idx")
+      .on(t.moduleId, t.position, t.id)
+      .where(sql`${t.archivedAt} IS NULL`),
+  ]
+);
 
 export const resources = pgTable("resources", {
   id: serial("id").primaryKey(),

@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
-import { courseAccess, courses, lessonProgress, lessons } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { courseAccess, courses, lessonProgress, lessons, modules } from "@/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import {
   completedProgressCount,
   overallProgressPercentage,
@@ -21,6 +21,7 @@ export default async function AccountPage() {
   const [access] = await db
     .select({
       status: courseAccess.status,
+      courseId: courses.id,
       courseTitle: courses.title,
       createdAt: courseAccess.createdAt,
     })
@@ -29,19 +30,29 @@ export default async function AccountPage() {
     .where(eq(courseAccess.userId, session.user.id))
     .limit(1);
 
-  const progressRows = await db
-    .select({
-      status: lessonProgress.status,
-      percentComplete: lessonProgress.percentComplete,
-    })
-    .from(lessons)
-    .leftJoin(
-      lessonProgress,
-      and(
-        eq(lessonProgress.lessonId, lessons.id),
-        eq(lessonProgress.userId, session.user.id)
-      )
-    );
+  const progressRows = access?.status === "active"
+    ? await db
+        .select({
+          status: lessonProgress.status,
+          percentComplete: lessonProgress.percentComplete,
+        })
+        .from(lessons)
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
+        .leftJoin(
+          lessonProgress,
+          and(
+            eq(lessonProgress.lessonId, lessons.id),
+            eq(lessonProgress.userId, session.user.id)
+          )
+        )
+        .where(
+          and(
+            eq(modules.courseId, access.courseId),
+            isNull(modules.archivedAt),
+            isNull(lessons.archivedAt)
+          )
+        )
+    : [];
   const completed = completedProgressCount(progressRows);
   const percentage = overallProgressPercentage(progressRows);
 

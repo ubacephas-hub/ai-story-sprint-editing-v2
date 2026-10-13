@@ -18,6 +18,14 @@ test("only active students and administrators can download private documents", (
     canDownloadDocument({ role: "student", accountStatus: "active", courseAccessStatus: "active" }),
     true,
   );
+  assert.equal(
+    canDownloadDocument({ role: "student", accountStatus: "active", courseAccessStatus: "active", contentActive: false }),
+    false,
+  );
+  assert.equal(
+    canDownloadDocument({ role: "admin", accountStatus: "active", courseAccessStatus: null, contentActive: false }),
+    true,
+  );
   for (const courseAccessStatus of ["pending", "suspended", "removed", null]) {
     assert.equal(
       canDownloadDocument({ role: "student", accountStatus: "active", courseAccessStatus }),

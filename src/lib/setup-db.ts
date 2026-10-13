@@ -15,13 +15,47 @@ CREATE TABLE IF NOT EXISTS courses (
 CREATE UNIQUE INDEX IF NOT EXISTS courses_slug_idx ON courses (slug);
 CREATE TABLE IF NOT EXISTS modules (
   id SERIAL PRIMARY KEY, course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-  title TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0
+  title TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+  archived_at TIMESTAMPTZ,
+  archived_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE TABLE IF NOT EXISTS lessons (
   id SERIAL PRIMARY KEY, module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
   title TEXT NOT NULL, description TEXT, position INTEGER NOT NULL DEFAULT 0,
-  video_kind TEXT NOT NULL DEFAULT 'none', video_source TEXT, video_mime TEXT
+  video_kind TEXT NOT NULL DEFAULT 'none', video_source TEXT, video_mime TEXT,
+  archived_at TIMESTAMPTZ,
+  archived_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+ALTER TABLE modules ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE modules ADD COLUMN IF NOT EXISTS archived_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE lessons ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE lessons ADD COLUMN IF NOT EXISTS archived_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'modules_archived_by_fkey'
+      AND conrelid = 'modules'::regclass
+  ) THEN
+    ALTER TABLE modules
+      ADD CONSTRAINT modules_archived_by_fkey
+      FOREIGN KEY (archived_by) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'lessons_archived_by_fkey'
+      AND conrelid = 'lessons'::regclass
+  ) THEN
+    ALTER TABLE lessons
+      ADD CONSTRAINT lessons_archived_by_fkey
+      FOREIGN KEY (archived_by) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END;
+$$;
+CREATE INDEX IF NOT EXISTS modules_active_course_position_idx
+  ON modules(course_id, position, id) WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS lessons_active_module_position_idx
+  ON lessons(module_id, position, id) WHERE archived_at IS NULL;
 CREATE TABLE IF NOT EXISTS resources (
   id SERIAL PRIMARY KEY, lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
   type TEXT NOT NULL, title TEXT NOT NULL, url TEXT, content TEXT, file_path TEXT,

@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { courses, courseAccess, lessons, lessonProgress, modules } from "@/db/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import {
   chooseContinueLesson,
   completedProgressCount,
@@ -67,8 +67,11 @@ export default async function DashboardPage() {
         percentComplete: lessonProgress.percentComplete,
         lastWatchedAt: lessonProgress.lastWatchedAt,
       })
-      .from(lessons)
-      .innerJoin(modules, eq(lessons.moduleId, modules.id))
+      .from(modules)
+      .leftJoin(
+        lessons,
+        and(eq(lessons.moduleId, modules.id), isNull(lessons.archivedAt))
+      )
       .leftJoin(
         lessonProgress,
         and(
@@ -76,7 +79,9 @@ export default async function DashboardPage() {
           eq(lessonProgress.userId, user.id)
         )
       )
-      .where(eq(modules.courseId, active.courses.id))
+      .where(
+        and(eq(modules.courseId, active.courses.id), isNull(modules.archivedAt))
+      )
       .orderBy(asc(modules.position), asc(lessons.position), asc(lessons.id));
 
     const grouped = new Map<number, CourseModuleView>();
@@ -89,24 +94,26 @@ export default async function DashboardPage() {
         },
         lessons: [],
       };
-      current.lessons.push({
-        lesson: {
-          id: row.lessonId,
-          title: row.lessonTitle,
-          position: row.lessonPosition,
-        },
-        progress: row.progressId
-          ? {
-              status: row.progressStatus,
-              playbackPositionSeconds: row.playbackPositionSeconds || 0,
-              furthestPositionSeconds: row.furthestPositionSeconds || 0,
-              durationSeconds: row.durationSeconds,
-              watchedSeconds: row.watchedSeconds || 0,
-              percentComplete: row.percentComplete || 0,
-              lastWatchedAt: row.lastWatchedAt,
-            }
-          : null,
-      });
+      if (row.lessonId !== null) {
+        current.lessons.push({
+          lesson: {
+            id: row.lessonId,
+            title: row.lessonTitle || "",
+            position: row.lessonPosition || 0,
+          },
+          progress: row.progressId
+            ? {
+                status: row.progressStatus,
+                playbackPositionSeconds: row.playbackPositionSeconds || 0,
+                furthestPositionSeconds: row.furthestPositionSeconds || 0,
+                durationSeconds: row.durationSeconds,
+                watchedSeconds: row.watchedSeconds || 0,
+                percentComplete: row.percentComplete || 0,
+                lastWatchedAt: row.lastWatchedAt,
+              }
+            : null,
+        });
+      }
       grouped.set(row.moduleId, current);
     }
     courseModules.push(...grouped.values());
@@ -237,11 +244,13 @@ export default async function DashboardPage() {
                     courseModule.lessons.map((item) => item.progress)
                   );
                   const state =
-                    moduleCompleted === courseModule.lessons.length
-                      ? "Completed"
-                      : moduleCompleted || overallProgressPercentage(courseModule.lessons.map((item) => item.progress)) > 0
-                        ? "In progress"
-                        : "Not started";
+                    courseModule.lessons.length === 0
+                      ? "No active lessons"
+                      : moduleCompleted === courseModule.lessons.length
+                        ? "Completed"
+                        : moduleCompleted || overallProgressPercentage(courseModule.lessons.map((item) => item.progress)) > 0
+                          ? "In progress"
+                          : "Not started";
                   return (
                     <details
                       className="module-outline"
@@ -253,9 +262,9 @@ export default async function DashboardPage() {
                           <div className="flex gap-3">
                             <div className="module-icon mb-0">{icons[index % icons.length]}</div>
                             <div>
-                              <strong className="text-sm text-[var(--muted)]">Module {index + 1}</strong>
+                              <strong className="text-sm module-heading-muted">Module {index + 1}</strong>
                               <h3 className="font-bold text-lg">{courseModule.module.title}</h3>
-                              <p className="text-xs text-[var(--muted)]">
+                              <p className="text-xs module-heading-muted">
                                 {moduleCompleted} of {courseModule.lessons.length} lessons · {Math.round(overallProgressPercentage(courseModule.lessons.map((item) => item.progress)))}% watched
                               </p>
                             </div>

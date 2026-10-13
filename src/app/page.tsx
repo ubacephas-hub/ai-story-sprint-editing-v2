@@ -3,7 +3,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { lessons, modules } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +17,13 @@ export default async function HomePage() {
     if (db) {
       const [moduleTotal] = await db
         .select({ count: sql<number>`count(*)` })
-        .from(modules);
+        .from(modules)
+        .where(isNull(modules.archivedAt));
       const [lessonTotal] = await db
         .select({ count: sql<number>`count(*)` })
-        .from(lessons);
+        .from(lessons)
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
+        .where(and(isNull(modules.archivedAt), isNull(lessons.archivedAt)));
       moduleCount = Number(moduleTotal?.count || 0);
       lessonCount = Number(lessonTotal?.count || 0);
     }

@@ -12,20 +12,27 @@ interface Lesson {
   position: number;
   videoKind: string;
   videoSource: string | null;
+  archivedAt: Date | string | null;
 }
 
 interface ModuleOption {
   id: number;
   title: string;
   position: number;
+  archivedAt: Date | string | null;
 }
 
 interface Props {
   lesson: Lesson;
+  currentModuleArchivedAt: Date | string | null;
   modules: ModuleOption[];
 }
 
-export default function LessonEditForm({ lesson, modules }: Props) {
+export default function LessonEditForm({
+  lesson,
+  currentModuleArchivedAt,
+  modules,
+}: Props) {
   const router = useRouter();
   const [moduleId, setModuleId] = useState(lesson.moduleId);
   const [position, setPosition] = useState(Math.max(1, lesson.position));
@@ -37,6 +44,8 @@ export default function LessonEditForm({ lesson, modules }: Props) {
   const [loading, setLoading] = useState(false);
   const [videoError, setVideoError] = useState("");
 
+  const lessonIsArchived = Boolean(lesson.archivedAt);
+  const parentModuleIsArchived = Boolean(currentModuleArchivedAt);
   const youtubeId = videoSource ? parseYouTubeUrl(videoSource) : null;
   const isYouTube = youtubeId !== null;
 
@@ -85,7 +94,7 @@ export default function LessonEditForm({ lesson, modules }: Props) {
       if (!response.ok) {
         setError(data.error || "Lesson could not be saved.");
       } else {
-        setSuccess("Lesson saved successfully.");
+        setSuccess("Lesson saved successfully. Its existing resources and progress remain linked.");
         router.refresh();
       }
     } catch {
@@ -95,11 +104,71 @@ export default function LessonEditForm({ lesson, modules }: Props) {
     }
   }
 
+  async function updateArchiveState(action: "archive" | "restore") {
+    setError("");
+    setSuccess("");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/lessons", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: lesson.id,
+          action,
+          confirmation: action === "archive" ? "ARCHIVE LESSON" : "RESTORE LESSON",
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Lesson status could not be changed.");
+        return;
+      }
+      setSuccess(
+        action === "archive"
+          ? "Lesson archived. Its video, resources, relationships, and progress are preserved."
+          : parentModuleIsArchived
+            ? "Lesson restored. It remains hidden from students until its module is restored."
+            : "Lesson restored with all saved content and progress."
+      );
+      router.refresh();
+    } catch {
+      setError("The lesson status request failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function confirmArchive() {
+    const typedConfirmation = window.prompt(
+      `Archiving “${lesson.title}” removes it from student views but keeps its video, resources, and progress. Type ARCHIVE LESSON to continue.`
+    );
+    if (typedConfirmation !== "ARCHIVE LESSON") {
+      setSuccess("Lesson was not archived. No content was changed.");
+      return;
+    }
+    void updateArchiveState("archive");
+  }
+
+  function confirmRestore() {
+    if (!window.confirm(`Restore “${lesson.title}” as an active lesson?`)) {
+      setSuccess("Lesson was not restored.");
+      return;
+    }
+    void updateArchiveState("restore");
+  }
+
   return (
     <div className="card">
+      {(lessonIsArchived || parentModuleIsArchived) && (
+        <div className="alert warning mb-4">
+          {lessonIsArchived
+            ? "This lesson is individually archived. Restore it to make it available again when its module is active."
+            : "This lesson is hidden from students because its module is archived."}
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
-        {error && <div className="alert error">{error}</div>}
-        {success && <div className="alert success">{success}</div>}
+        {error && <div className="alert error" role="alert">{error}</div>}
+        {success && <div className="alert success" role="status">{success}</div>}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="form-group">
@@ -107,14 +176,20 @@ export default function LessonEditForm({ lesson, modules }: Props) {
             <select
               id="edit-lesson-module"
               value={moduleId}
+              disabled={parentModuleIsArchived}
               onChange={(event) => setModuleId(Number(event.target.value))}
             >
               {modules.map((module) => (
                 <option key={module.id} value={module.id}>
-                  Module {module.position} — {module.title}
+                  Module {module.position} — {module.title}{module.archivedAt ? " (archived — current assignment)" : ""}
                 </option>
               ))}
             </select>
+            {parentModuleIsArchived && (
+              <p className="text-sm text-[var(--muted)] mt-1">
+                Restore the module before moving lessons out of it. Active modules are available as destinations once the parent module is active.
+              </p>
+            )}
           </div>
           <div className="form-group">
             <label htmlFor="edit-lesson-position">Order</label>
@@ -198,9 +273,20 @@ export default function LessonEditForm({ lesson, modules }: Props) {
           </div>
         )}
 
-        <button type="submit" className="btn" disabled={loading}>
-          {loading ? "Saving…" : "Save lesson"}
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button type="submit" className="btn" disabled={loading}>
+            {loading ? "Saving…" : "Save lesson"}
+          </button>
+          {lessonIsArchived ? (
+            <button type="button" className="btn secondary" onClick={confirmRestore} disabled={loading}>
+              Restore lesson
+            </button>
+          ) : (
+            <button type="button" className="btn danger" onClick={confirmArchive} disabled={loading}>
+              Archive lesson
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

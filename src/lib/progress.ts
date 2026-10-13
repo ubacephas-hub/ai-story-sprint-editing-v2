@@ -5,21 +5,28 @@ export const MAX_WATCH_INCREMENT_SECONDS = 45;
 
 export type ProgressStatus = "in_progress" | "completed";
 
+import { isStudentContentActive } from "@/lib/content-archive";
+
 export interface PlaybackAuthorizationInput {
   role: string | null | undefined;
   accessStatus: string | null | undefined;
   lessonBelongsToCourse: boolean;
+  moduleArchivedAt?: Date | string | null;
+  lessonArchivedAt?: Date | string | null;
 }
 
 export function canWritePlaybackProgress({
   role,
   accessStatus,
   lessonBelongsToCourse,
+  moduleArchivedAt,
+  lessonArchivedAt,
 }: PlaybackAuthorizationInput): boolean {
   return (
     role === "student" &&
     accessStatus === "active" &&
-    lessonBelongsToCourse
+    lessonBelongsToCourse &&
+    isStudentContentActive({ moduleArchivedAt, lessonArchivedAt })
   );
 }
 

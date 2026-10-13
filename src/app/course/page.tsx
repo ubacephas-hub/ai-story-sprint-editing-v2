@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { courseAccess, courses, lessons, lessonProgress, modules } from "@/db/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import {
   completedProgressCount,
   displayPercentage,
@@ -17,6 +17,13 @@ type ProgressView = {
   status: string | null;
   percentComplete: number;
   lastWatchedAt: Date | null;
+};
+
+type CourseLessonView = {
+  id: number;
+  title: string;
+  position: number;
+  progress: ProgressView | null;
 };
 
 export default async function CoursePage() {
@@ -50,8 +57,11 @@ export default async function CoursePage() {
       percentComplete: lessonProgress.percentComplete,
       lastWatchedAt: lessonProgress.lastWatchedAt,
     })
-    .from(lessons)
-    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .from(modules)
+    .leftJoin(
+      lessons,
+      and(eq(lessons.moduleId, modules.id), isNull(lessons.archivedAt))
+    )
     .leftJoin(
       lessonProgress,
       and(
@@ -59,10 +69,13 @@ export default async function CoursePage() {
         eq(lessonProgress.userId, session.user.id)
       )
     )
-    .where(eq(modules.courseId, access.courses.id))
+    .where(and(eq(modules.courseId, access.courses.id), isNull(modules.archivedAt)))
     .orderBy(asc(modules.position), asc(lessons.position), asc(lessons.id));
 
-  const grouped = new Map<number, { id: number; title: string; position: number; lessons: Array<{ id: number; title: string; position: number; progress: ProgressView | null }> }>();
+  const grouped = new Map<
+    number,
+    { id: number; title: string; position: number; lessons: CourseLessonView[] }
+  >();
   for (const row of rows) {
     const current = grouped.get(row.moduleId) || {
       id: row.moduleId,
@@ -70,18 +83,20 @@ export default async function CoursePage() {
       position: row.modulePosition,
       lessons: [],
     };
-    current.lessons.push({
-      id: row.lessonId,
-      title: row.lessonTitle,
-      position: row.lessonPosition,
-      progress: row.progressId
-        ? {
-            status: row.progressStatus,
-            percentComplete: row.percentComplete || 0,
-            lastWatchedAt: row.lastWatchedAt,
-          }
-        : null,
-    });
+    if (row.lessonId !== null) {
+      current.lessons.push({
+        id: row.lessonId,
+        title: row.lessonTitle || "",
+        position: row.lessonPosition || 0,
+        progress: row.progressId
+          ? {
+              status: row.progressStatus,
+              percentComplete: row.percentComplete || 0,
+              lastWatchedAt: row.lastWatchedAt,
+            }
+          : null,
+      });
+    }
     grouped.set(row.moduleId, current);
   }
   const data = [...grouped.values()];
@@ -108,68 +123,78 @@ export default async function CoursePage() {
             </div>
           </div>
 
-          <div className="course-page-layout">
-            <aside className="course-outline-panel">
-              <h2>Course Outline</h2>
-              {data.map((courseModule, moduleIndex) => (
-                <details key={courseModule.id} open={moduleIndex === 0}>
-                  <summary>
-                    <span>
-                      Module {moduleIndex + 1}
-                      <strong>{courseModule.title}</strong>
-                    </span>
-                    <span>›</span>
-                  </summary>
-                  <div>
-                    {courseModule.lessons.map((lesson, lessonIndex) => (
-                      <Link href={`/lesson/${lesson.id}`} key={lesson.id}>
-                        <span className={`lesson-status-dot ${lesson.progress?.status || ""}`} />
-                        <span>
-                          <small>Lesson {lessonIndex + 1}</small>
-                          {lesson.title}
-                        </span>
-                        <strong className="ml-auto text-xs">{Math.round(displayPercentage(lesson.progress))}%</strong>
-                      </Link>
-                    ))}
-                  </div>
-                </details>
-              ))}
-            </aside>
-
-            <section className="course-focus">
-              <div className="soft-card continue-card">
-                <span className="page-eyebrow">Learning path</span>
-                <h2 className="text-2xl font-bold mt-2">Choose any lesson from the course outline</h2>
-                <p className="text-[var(--muted)] mt-2">
-                  Move through the {data.length} modules at your own pace. Your progress is saved automatically across devices.
-                </p>
-                <div className="progress-bar mt-6">
-                  <span className="progress-bar-fill" style={{ width: `${percent}%` }} />
-                </div>
-                <p className="text-sm text-[var(--muted)] mt-2">{Math.round(percent)}% overall watched</p>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4 mt-4">
-                {data.map((courseModule, index) => {
-                  const modulePercent = overallProgressPercentage(
-                    courseModule.lessons.map((lesson) => lesson.progress)
-                  );
-                  const moduleCompleted = completedProgressCount(
-                    courseModule.lessons.map((lesson) => lesson.progress)
-                  );
-                  return (
-                    <div className="soft-card" key={courseModule.id}>
-                      <div className="module-icon">{["✓", "▱", "▯", "☷"][index % 4]}</div>
-                      <span className="page-eyebrow">Module {index + 1}</span>
-                      <h3 className="text-lg font-bold">{courseModule.title}</h3>
-                      <p className="text-sm text-[var(--muted)]">
-                        {moduleCompleted} of {courseModule.lessons.length} lessons completed · {Math.round(modulePercent)}% watched
-                      </p>
+          {data.length === 0 ? (
+            <div className="soft-card text-center text-[var(--muted)] mb-5">
+              No active course modules are available right now.
+            </div>
+          ) : (
+            <div className="course-page-layout">
+              <aside className="course-outline-panel">
+                <h2>Course Outline</h2>
+                {data.map((courseModule, moduleIndex) => (
+                  <details key={courseModule.id} open={moduleIndex === 0}>
+                    <summary>
+                      <span>
+                        Module {moduleIndex + 1}
+                        <strong>{courseModule.title}</strong>
+                      </span>
+                      <span>›</span>
+                    </summary>
+                    <div>
+                      {courseModule.lessons.length === 0 ? (
+                        <p className="course-outline-empty">No active lessons in this module.</p>
+                      ) : courseModule.lessons.map((lesson, lessonIndex) => (
+                        <Link href={`/lesson/${lesson.id}`} key={lesson.id}>
+                          <span className={`lesson-status-dot ${lesson.progress?.status || ""}`} />
+                          <span>
+                            <small>Lesson {lessonIndex + 1}</small>
+                            {lesson.title}
+                          </span>
+                          <strong className="ml-auto text-xs">{Math.round(displayPercentage(lesson.progress))}%</strong>
+                        </Link>
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
+                  </details>
+                ))}
+              </aside>
+
+              <section className="course-focus">
+                <div className="soft-card continue-card">
+                  <span className="page-eyebrow">Learning path</span>
+                  <h2 className="text-2xl font-bold mt-2">Choose any lesson from the course outline</h2>
+                  <p className="text-[var(--muted)] mt-2">
+                    Move through the {data.length} active modules at your own pace. Your progress is saved automatically across devices.
+                  </p>
+                  <div className="progress-bar mt-6">
+                    <span className="progress-bar-fill" style={{ width: `${percent}%` }} />
+                  </div>
+                  <p className="text-sm text-[var(--muted)] mt-2">{Math.round(percent)}% overall watched</p>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                  {data.map((courseModule, index) => {
+                    const modulePercent = overallProgressPercentage(
+                      courseModule.lessons.map((lesson) => lesson.progress)
+                    );
+                    const moduleCompleted = completedProgressCount(
+                      courseModule.lessons.map((lesson) => lesson.progress)
+                    );
+                    return (
+                      <div className="soft-card module-card-purple" key={courseModule.id}>
+                        <div className="module-icon">{["✓", "▱", "▯", "☷"][index % 4]}</div>
+                        <span className="page-eyebrow">Module {index + 1}</span>
+                        <h3 className="text-lg font-bold">{courseModule.title}</h3>
+                        <p className="text-sm module-card-description">
+                          {courseModule.lessons.length === 0
+                            ? "No active lessons"
+                            : `${moduleCompleted} of ${courseModule.lessons.length} lessons completed · ${Math.round(modulePercent)}% watched`}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       </main>
     </>

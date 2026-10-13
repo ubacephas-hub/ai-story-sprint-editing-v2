@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { users, courses, modules, lessons, courseAccess } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +26,14 @@ export default async function AdminDashboardPage() {
 
   const totalModules = await db
     .select({ count: sql<number>`count(*)` })
-    .from(modules);
+    .from(modules)
+    .where(isNull(modules.archivedAt));
 
   const totalLessons = await db
     .select({ count: sql<number>`count(*)` })
-    .from(lessons);
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(and(isNull(modules.archivedAt), isNull(lessons.archivedAt)));
 
   const pendingAccess = await db
     .select({ count: sql<number>`count(*)` })
@@ -60,13 +63,13 @@ export default async function AdminDashboardPage() {
             <strong className="block text-2xl">
               {Number(totalModules[0].count)}
             </strong>
-            <span className="text-[var(--muted)] text-sm">Modules</span>
+            <span className="text-[var(--muted)] text-sm">Active Modules</span>
           </div>
           <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl">
               {Number(totalLessons[0].count)}
             </strong>
-            <span className="text-[var(--muted)] text-sm">Lessons</span>
+            <span className="text-[var(--muted)] text-sm">Active Lessons</span>
           </div>
           <div className="card text-center admin-stat bg-gradient-to-br from-white to-[#f3efff]">
             <strong className="block text-2xl text-[var(--warn)]">
