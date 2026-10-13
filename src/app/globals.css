@@ -247,3 +247,60 @@ a {
 }
 @media(max-width:600px){.public-nav{width:calc(100% - 24px)}.soft-card,.card{padding:16px}.continue-card .btn{width:100%}.progress-ring{width:96px;height:96px}.section-heading{margin-top:22px}}
 
+
+/* Module admin form fields: keep inputs readable on purple module cards and archived cards.
+   Browsers/extensions can render form controls with dark UA colors, so the text colors are pinned here. */
+.admin-module-card .form-group input,
+.admin-module-card .form-group textarea,
+.admin-module-card .form-group select,
+.archived-content-card .form-group input,
+.archived-content-card .form-group textarea,
+.archived-content-card .form-group select {
+  background-color: #ffffff !important;
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color: var(--ink);
+  color-scheme: light;
+  border: 1px solid #667085;
+}
+.admin-module-card .form-group input::placeholder,
+.admin-module-card .form-group textarea::placeholder,
+.admin-module-card .form-group select::placeholder,
+.archived-content-card .form-group input::placeholder,
+.archived-content-card .form-group textarea::placeholder,
+.archived-content-card .form-group select::placeholder {
+  color: #667085;
+  -webkit-text-fill-color: #667085;
+  opacity: 1;
+}
+.admin-module-card .form-group input:disabled,
+.admin-module-card .form-group textarea:disabled,
+.admin-module-card .form-group select:disabled,
+.archived-content-card .form-group input:disabled,
+.archived-content-card .form-group textarea:disabled,
+.archived-content-card .form-group select:disabled {
+  background-color: #f2f4f7 !important;
+  color: #475467 !important;
+  -webkit-text-fill-color: #475467 !important;
+  border-color: #98a2b3;
+}
+.admin-module-card .form-group input:focus,
+.admin-module-card .form-group textarea:focus,
+.admin-module-card .form-group select:focus,
+.archived-content-card .form-group input:focus,
+.archived-content-card .form-group textarea:focus,
+.archived-content-card .form-group select:focus {
+  outline: none;
+  border-color: var(--brand2);
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px var(--brand2);
+}
+@media (forced-colors: active) {
+  .admin-module-card .form-group input,
+  .admin-module-card .form-group textarea,
+  .admin-module-card .form-group select,
+  .archived-content-card .form-group input,
+  .archived-content-card .form-group textarea,
+  .archived-content-card .form-group select {
+    border: 1px solid CanvasText;
+  }
+}
